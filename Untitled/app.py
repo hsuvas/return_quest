@@ -2131,7 +2131,8 @@ elif st.session_state.step == 6:
 
         with st.expander(f"📜 {t('full_transcript')}"):
             for msg in st.session_state.messages:
-                role_label = f"**{persona['Name']}**" if msg["role"] == "customer" else f"**{info['label']} Agent**"
+                _agent_info = AGENT_INFO.get(st.session_state.get("agent_persona_choice", ""), {})
+                role_label = f"**{persona['Name']}**" if msg["role"] == "customer" else f"**{_agent_info.get('label', 'Agent')} Agent**"
                 st.markdown(f"{role_label}: {msg['text']}")
                 if msg.get("tools"):
                     for tool in msg["tools"]:
