@@ -1045,7 +1045,7 @@ def next_step():
     go_to(st.session_state.step + 1)
 
 
-_LOG_PATH = _SRC_DIR.parent / "data_collect" / "showcase_log.jsonl"
+_LOG_PATH = _SHOWCASE_DIR.parent / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
 
 
