@@ -64,6 +64,13 @@ _API_BASE = f"http://127.0.0.1:{_API_PORT}"
 
 
 def _start_api_server():
+    # Propagate secrets into the environment so litellm can find the API key
+    for _key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        if _key not in os.environ:
+            try:
+                os.environ[_key] = st.secrets[_key]
+            except (KeyError, FileNotFoundError):
+                pass
     import server as _srv  # local import so path bootstrap has run by now
     uvicorn.run(_srv.app, host="127.0.0.1", port=_API_PORT, log_level="warning")
 
