@@ -537,6 +537,93 @@ ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
 
 
 # =============================================================================
+# PROCESS_RETURN DETERMINISTIC RESULTS PER RESOLUTION TYPE
+# =============================================================================
+
+PROCESS_RETURN_RESULTS: dict[str, dict[str, Any]] = {
+    "RETURN_REFUND_FULL_BANK": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "RETURN_REFUND_FULL_BANK",
+        "refund_amount": "full_order_total",
+        "refund_method": "original_payment",
+        "refund_destination": "original bank/credit card on file",
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_refund_days": "5-7 business days after item received",
+        "message": "Full refund approved. A prepaid return shipping label has been generated. The refund will be credited to the original payment method within 5-7 business days after the returned item is received and inspected.",
+    },
+    "RETURN_REFUND_PARTIAL_BANK": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "RETURN_REFUND_PARTIAL_BANK",
+        "refund_amount": "partial_order_total",
+        "refund_method": "original_payment",
+        "refund_destination": "original bank/credit card on file",
+        "deductions_applied": ["restocking_fee", "used_item_depreciation"],
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_refund_days": "5-7 business days after item received",
+        "message": "Partial refund approved. Applicable deductions (e.g., restocking fee) have been applied. The refund will be credited to the original payment method within 5-7 business days after the returned item is received and inspected.",
+    },
+    "RETURN_REFUND_GIFT_CARD": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "RETURN_REFUND_GIFT_CARD",
+        "refund_amount": "applicable_refund_total",
+        "refund_method": "gift_card",
+        "refund_destination": "Amazon Gift Card balance",
+        "gift_card_code": "GC-{order_id}",
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_refund_days": "immediate upon item receipt confirmation",
+        "message": "Refund approved as Amazon Gift Card credit. The credit will be applied to the customer's account immediately after the returned item is received. A prepaid return shipping label has been generated.",
+    },
+    "DENY_REFUND": {
+        "status": "denied",
+        "return_id": None,
+        "resolution_type": "DENY_REFUND",
+        "refund_amount": 0,
+        "refund_method": None,
+        "denial_reasons": ["outside_return_window", "ineligible_item_category", "item_condition_not_acceptable"],
+        "return_label_generated": False,
+        "message": "Return/refund request denied. The item does not meet the eligibility criteria for a return based on the applicable return policy. The customer has been informed of the specific policy clause(s) that apply.",
+    },
+    "ESCALATE_HUMAN_AGENT": {
+        "status": "escalated",
+        "return_id": None,
+        "resolution_type": "ESCALATE_HUMAN_AGENT",
+        "escalation_id": "ESC-{order_id}",
+        "escalation_tier": "specialist",
+        "estimated_response_time": "24-48 hours",
+        "message": "The case has been escalated to a human specialist for further review. The customer will be contacted within 24-48 hours with an update. A case reference number has been generated for tracking.",
+    },
+    "REPLACEMENT_EXCHANGE": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "REPLACEMENT_EXCHANGE",
+        "exchange_order_id": "EXC-{order_id}",
+        "refund_amount": 0,
+        "refund_method": None,
+        "replacement_shipping": "standard",
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_delivery_days": "3-5 business days after original item shipped back",
+        "message": "Exchange approved. A replacement item will be shipped once the original item is received. A prepaid return shipping label has been generated. Any price difference will be handled accordingly.",
+    },
+    "USER_ABORT": {
+        "status": "cancelled",
+        "return_id": None,
+        "resolution_type": "USER_ABORT",
+        "refund_amount": 0,
+        "refund_method": None,
+        "return_label_generated": False,
+        "message": "The customer has chosen to withdraw their return request. No further action is required. The conversation has been closed.",
+    },
+}
+
+
+# =============================================================================
 # TOOL METADATA
 # =============================================================================
 
