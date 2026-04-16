@@ -1076,13 +1076,34 @@ _SHEET_HEADER = [
     "date", "timestamp", "session_id",
     "user_name", "persona_id", "location", "job_sector", "income_range",
     "order_id", "items", "return_reasons", "purchase_date", "delivery_date",
-    "resolution", "turn_count", "tool_calls_count", "hints_used",
+    "resolution_type", "resolution_description",
+    "turn_count", "tool_calls_count", "hints_used",
     "conversation",
 ]
 
 
+def _fmt_items(items) -> str:
+    """Return a compact comma-separated list of product names."""
+    if not items:
+        return ""
+    names = [i.get("product_name", i.get("name", "?")) if isinstance(i, dict) else str(i) for i in items]
+    return "; ".join(names)
+
+
+def _fmt_conversation(messages) -> str:
+    """Return conversation as plain text turns, omitting tool call payloads."""
+    lines = []
+    for m in messages:
+        role = "Customer" if m["role"] == "customer" else "Agent"
+        lines.append(f"[{role}] {m['text']}")
+        for tc in m.get("tool_calls", []) or m.get("tools", []):
+            if isinstance(tc, dict):
+                lines.append(f"  → tool: {tc.get('tool_name', '')}")
+    return "\n".join(lines)
+
+
 def _save_session_data():
-    """Save session to Google Sheets (and local fallback). Overwrites existing row for this session."""
+    """Save session to Google Sheets (upsert) and local fallback."""
     now = datetime.datetime.now(datetime.timezone.utc)
     date_str = now.strftime("%d-%m-%Y")
     timestamp_iso = now.isoformat(timespec="seconds")
@@ -1091,6 +1112,20 @@ def _save_session_data():
     session_id = st.session_state.get("api_session_id") or st.session_state.get("session_id", "unknown")
     task = (st.session_state.get("scenario") or {}).get("task", {})
     resolution = st.session_state.get("resolution")
+    messages = st.session_state.get("messages", [])
+
+    items = st.session_state.get("selected_items", task.get("items", []))
+    return_reasons = st.session_state.get("return_reasons", [])
+
+    res_type = ""
+    res_desc = ""
+    if resolution:
+        if isinstance(resolution, dict):
+            res_type = resolution.get("resolution_type", "")
+            res_desc = resolution.get("resolution_description", "")
+        else:
+            res_type = getattr(resolution, "resolution_type", "")
+            res_desc = getattr(resolution, "resolution_description", "")
 
     record = {
         "session_id": session_id,
@@ -1105,14 +1140,14 @@ def _save_session_data():
         },
         "task": {
             "order_id": task.get("order_id", ""),
-            "items": st.session_state.get("selected_items", task.get("items", [])),
-            "return_reasons": st.session_state.get("return_reasons", []),
+            "items": items,
+            "return_reasons": return_reasons,
             "purchase_date": task.get("purchase_date", ""),
             "delivery_date": task.get("delivery_date", ""),
         },
         "conversation": [
             {"role": m["role"], "text": m["text"], "tool_calls": m.get("tools", [])}
-            for m in st.session_state.get("messages", [])
+            for m in messages
         ],
         "resolution": resolution,
         "stats": {
@@ -1131,7 +1166,7 @@ def _save_session_data():
     except Exception:
         pass
 
-    # Google Sheets — upsert: update existing row for this session, or append
+    # Google Sheets upsert
     sheet = _get_gsheet()
     if sheet is None:
         return
@@ -1141,30 +1176,25 @@ def _save_session_data():
         persona.get("Name", ""), persona.get("Persona_id", ""),
         persona.get("Location", ""), persona.get("Job_sector", ""), persona.get("Income_range", ""),
         task.get("order_id", ""),
-        json.dumps(record["task"]["items"], ensure_ascii=False),
-        json.dumps(record["task"]["return_reasons"], ensure_ascii=False),
+        _fmt_items(items),
+        "; ".join(return_reasons) if return_reasons else "",
         task.get("purchase_date", ""), task.get("delivery_date", ""),
-        json.dumps(resolution, ensure_ascii=False) if resolution else "",
+        res_type, res_desc,
         record["stats"]["turn_count"],
         record["stats"]["tool_calls_count"],
         record["stats"]["hints_used"],
-        json.dumps(record["conversation"], ensure_ascii=False),
+        _fmt_conversation(messages),
     ]
 
-    all_values = sheet.get_all_values()
-    if not all_values:
-        sheet.append_row(_SHEET_HEADER)
-        sheet.append_row(row, value_input_option="USER_ENTERED")
-        return
+    # Ensure header exists
+    first_row = sheet.row_values(1)
+    if not first_row or first_row[0] != "date":
+        sheet.insert_row(_SHEET_HEADER, 1)
 
-    # Find existing row by session_id (column 3)
-    header = all_values[0]
-    try:
-        sid_col = header.index("session_id") + 1  # 1-indexed
-    except ValueError:
-        sid_col = 3
+    # Find and update existing row, or append
+    all_values = sheet.get_all_values()
     for i, data_row in enumerate(all_values[1:], start=2):
-        if len(data_row) >= sid_col and data_row[sid_col - 1] == session_id:
+        if len(data_row) >= 3 and data_row[2] == session_id:
             sheet.update(f"A{i}", [row], value_input_option="USER_ENTERED")
             return
 
