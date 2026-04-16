@@ -120,7 +120,8 @@ def _run_turn(session_id: str) -> TurnResponse:
             conv_state, scenario, provider, agent_persona,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Agent error: {exc}")
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Agent error: {exc}\n{traceback.format_exc()}")
 
     return TurnResponse(
         agent_message=message,

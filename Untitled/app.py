@@ -1049,17 +1049,46 @@ _LOG_PATH = _SHOWCASE_DIR.parent / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
 
 
+def _get_gsheet():
+    """Return the first worksheet of the configured Google Sheet, or None if unconfigured."""
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]),
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        gc = gspread.authorize(creds)
+        return gc.open_by_key(st.secrets["google_sheets"]["spreadsheet_id"]).sheet1
+    except Exception:
+        return None
+
+
+_SHEET_HEADER = [
+    "date", "timestamp", "session_id",
+    "user_name", "persona_id", "location", "job_sector", "income_range",
+    "order_id", "items", "return_reasons", "purchase_date", "delivery_date",
+    "resolution", "turn_count", "tool_calls_count", "hints_used",
+    "conversation",
+]
+
+
 def _save_session_data():
-    """Save user, task, conversation and resolution to a JSON file."""
-    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    """Save session to Google Sheets (and local fallback). Overwrites existing row for this session."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    date_str = now.strftime("%d-%m-%Y")
+    timestamp_iso = now.isoformat(timespec="seconds")
+
     persona = st.session_state.get("persona") or {}
-    first_name = (persona.get("Name") or "unknown").split()[0].lower()
     session_id = st.session_state.get("api_session_id") or st.session_state.get("session_id", "unknown")
-    filename = f"{first_name}_{session_id}.json"
     task = (st.session_state.get("scenario") or {}).get("task", {})
+    resolution = st.session_state.get("resolution")
+
     record = {
         "session_id": session_id,
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "date": date_str,
+        "timestamp": timestamp_iso,
         "user": {
             "name": persona.get("Name", ""),
             "location": persona.get("Location", ""),
@@ -1075,23 +1104,64 @@ def _save_session_data():
             "delivery_date": task.get("delivery_date", ""),
         },
         "conversation": [
-            {
-                "role": m["role"],
-                "text": m["text"],
-                "tool_calls": m.get("tools", []),
-            }
+            {"role": m["role"], "text": m["text"], "tool_calls": m.get("tools", [])}
             for m in st.session_state.get("messages", [])
         ],
-        "resolution": st.session_state.get("resolution"),
+        "resolution": resolution,
         "stats": {
             "turn_count": st.session_state.get("turn_count", 0),
             "tool_calls_count": st.session_state.get("tool_calls_count", 0),
             "hints_used": sum(st.session_state.get("turn_hint_flags", [])),
         },
     }
-    out_path = _OUTPUT_DIR / filename
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False, indent=2)
+
+    # Local fallback
+    try:
+        _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        first_name = (persona.get("Name") or "unknown").split()[0].lower()
+        with open(_OUTPUT_DIR / f"{first_name}_{session_id}.json", "w", encoding="utf-8") as f:
+            json.dump(record, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    # Google Sheets — upsert: update existing row for this session, or append
+    sheet = _get_gsheet()
+    if sheet is None:
+        return
+
+    row = [
+        date_str, timestamp_iso, session_id,
+        persona.get("Name", ""), persona.get("Persona_id", ""),
+        persona.get("Location", ""), persona.get("Job_sector", ""), persona.get("Income_range", ""),
+        task.get("order_id", ""),
+        json.dumps(record["task"]["items"], ensure_ascii=False),
+        json.dumps(record["task"]["return_reasons"], ensure_ascii=False),
+        task.get("purchase_date", ""), task.get("delivery_date", ""),
+        json.dumps(resolution, ensure_ascii=False) if resolution else "",
+        record["stats"]["turn_count"],
+        record["stats"]["tool_calls_count"],
+        record["stats"]["hints_used"],
+        json.dumps(record["conversation"], ensure_ascii=False),
+    ]
+
+    all_values = sheet.get_all_values()
+    if not all_values:
+        sheet.append_row(_SHEET_HEADER)
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        return
+
+    # Find existing row by session_id (column 3)
+    header = all_values[0]
+    try:
+        sid_col = header.index("session_id") + 1  # 1-indexed
+    except ValueError:
+        sid_col = 3
+    for i, data_row in enumerate(all_values[1:], start=2):
+        if len(data_row) >= sid_col and data_row[sid_col - 1] == session_id:
+            sheet.update(f"A{i}", [row], value_input_option="USER_ENTERED")
+            return
+
+    sheet.append_row(row, value_input_option="USER_ENTERED")
 
 
 def _log_event(event_type: str, data: dict):
@@ -1722,7 +1792,8 @@ elif st.session_state.step == 4:
                         resp.raise_for_status()
                         data = resp.json()
                     except Exception as e:
-                        st.error(f"Could not start conversation: {e}")
+                        detail = getattr(getattr(e, "response", None), "text", str(e))
+                        st.error(f"Could not start conversation: {detail}")
                         st.stop()
 
                 st.session_state.api_session_id = data["session_id"]
@@ -1875,6 +1946,7 @@ elif st.session_state.step == 5:
             if data.get("resolution"):
                 st.session_state.resolution = data["resolution"]
             st.session_state["input_counter"] += 1
+            _save_session_data()
             st.rerun()
 
         if st.session_state.turn_count >= 9:
@@ -2010,6 +2082,7 @@ elif st.session_state.step == 6:
                 st.session_state.hint_text = data.get("hint")
                 st.session_state.turn_hint_flags.append(False)
                 st.session_state.turn_count += 1
+                _save_session_data()
                 go_to(5)
 
     else:
