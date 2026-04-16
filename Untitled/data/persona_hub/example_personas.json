@@ -1,0 +1,97 @@
+
+[ {
+    "Name": "Marco DeLuca",
+    "Age-range": "30-35",
+    "Location": "Italy",
+    "Gender": "Male",
+    "Job Sector": "Technology",
+    "Income range": "45,000-65,000 EUR",
+    "Person description": "Marco is a senior embedded software developer specializing in low-level system design for IoT and industrial devices. He is currently focused on simplifying GPRS integration within embedded systems, aiming to build a stable, efficient, and easy-to-maintain software stack. He values products that are developer-friendly, protocol-compatible, and reliable for long-term data transmission, and he is willing to invest significant time evaluating solutions that reduce complexity without sacrificing performance.",
+    "Language Style": "Consultative",
+    "Personality Style": {
+      "Openness": 4,
+      "Conscientiousness": 5,
+      "Extraversion": 2,
+      "Agreeableness": 4,
+      "Neuroticism": 2
+    },
+    "Communication style": "Doing centered",
+    "Persona_id": "Marco_Technology_Italy_01"
+  },
+  {
+    "Name": "Catherine O'Neill",
+    "Age-range": "45-50",
+    "Location": "Ireland",
+    "Gender": "Female",
+    "Job Sector": "Education",
+    "Income range": "40,000-55,000 EUR",
+    "Person description": "Catherine is a historian and independent scholar specializing in the early Roman Empire and the spread of Christianity. She is particularly interested in the persecution of early Christians and the moral themes of honor, courage, and faith, as illustrated by figures such as Saint Maurice. Catherine spends much of her time reading classical sources, attending academic lectures, and writing essays that explore the intersection of belief, power, and identity in antiquity.",
+    "Language Style": "Formal",
+    "Personality Style": {
+      "Openness": 5,
+      "Conscientiousness": 4,
+      "Extraversion": 2,
+      "Agreeableness": 4,
+      "Neuroticism": 3
+    },
+    "Communication style": "Literate",
+    "Persona_id": "Catherine_History_Ireland_02"
+  },
+  {
+    "Name": "Eratios Nikolaou",
+    "Age-range": "50-55",
+    "Location": "Greece",
+    "Gender": "Male",
+    "Job Sector": "Academia",
+    "Income range": "35,000-50,000 EUR",
+    "Person description": "Eratios is a university researcher and lecturer with a deep academic interest in ancient mathematics and geography. Inspired by Eratosthenes of Cyrene, he studies the historical development of geographic thought, including early mapping systems, meridians, and parallels. He enjoys synthesizing fragments from ancient texts and mentoring students in interdisciplinary research that bridges mathematics, astronomy, and geography.",
+    "Language Style": "Frozen",
+    "Personality Style": {
+      "Openness": 5,
+      "Conscientiousness": 4,
+      "Extraversion": 1,
+      "Agreeableness": 3,
+      "Neuroticism": 2
+    },
+    "Communication style": "Linear",
+    "Persona_id": "Eratios_Academia_Greece_03"
+  },
+  {
+    "Name": "Samantha Lewis",
+    "Age-range": "30-35",
+    "Location": "United Kingdom",
+    "Gender": "Female",
+    "Job Sector": "Education",
+    "Income range": "28,000-38,000 GBP",
+    "Person description": "Samantha is a Year 4 science teacher who specializes in biology-related topics such as animals, humans, and life processes. She is passionate about making science engaging and accessible for young learners and enjoys designing hands-on investigations using structured worksheets and lesson plans. Samantha is particularly skilled at explaining respiratory and reproductive systems in a way that is age-appropriate and enjoyable.",
+    "Language Style": "Casual",
+    "Personality Style": {
+      "Openness": 4,
+      "Conscientiousness": 5,
+      "Extraversion": 4,
+      "Agreeableness": 5,
+      "Neuroticism": 2
+    },
+    "Communication style": "Being centered",
+    "Persona_id": "Samantha_Education_UK_04"
+  },
+  {
+    "Name": "David Morales",
+    "Age-range": "40-45",
+    "Location": "United States",
+    "Gender": "Male",
+    "Job Sector": "Engineering",
+    "Income range": "80,000-100,000 USD",
+    "Person description": "David is an environmental engineer specializing in on-site wastewater treatment systems, particularly in coastal and marine-sensitive regions such as the Florida Keys. He has extensive experience with laboratory research, drainfield testing, and environmental impact assessments. David is highly knowledgeable about microbial activity in marine ecosystems and actively collaborates with regulatory bodies and professional organizations like the National Onsite Wastewater Association.",
+    "Language Style": "Formal",
+    "Personality Style": {
+      "Openness": 3,
+      "Conscientiousness": 5,
+      "Extraversion": 3,
+      "Agreeableness": 4,
+      "Neuroticism": 2
+    },
+    "Communication style": "Direct",
+    "Persona_id": "David_Engineering_USA_05"
+  }
+]

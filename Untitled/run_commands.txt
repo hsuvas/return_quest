@@ -1,0 +1,4 @@
+cd return_quest
+pip install -r requirements.txt
+# Create .env with OPENAI_API_KEY=...
+streamlit run app.py
