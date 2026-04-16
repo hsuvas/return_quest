@@ -25,6 +25,20 @@ if _THIS_DIR not in sys.path:
 from toolset import PROCESS_RETURN_RESULTS  # noqa: E402
 
 
+import re as _re
+
+def _parse_price(value) -> float:
+    """Robustly parse a price that may contain spaces or duplicate digits."""
+    s = _re.sub(r"[^\d.]", "", str(value))  # keep only digits and dots
+    parts = s.split(".")
+    if len(parts) > 2:
+        s = parts[0] + "." + "".join(parts[1:])
+    try:
+        return float(s) if s else 0.0
+    except ValueError:
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
 # System prompt for the tool-response simulator
 # ---------------------------------------------------------------------------
@@ -190,7 +204,7 @@ class Environment:
                 for i, item in enumerate(items)
             ],
             "total_amount": sum(
-                float(str(item.get("selling_price", 0)).replace("$", "").replace(",", "") or 0)
+                _parse_price(item.get("selling_price", 0))
                 for item in items
             ),
             "shipping_address": persona.get("Location", "Unknown"),
