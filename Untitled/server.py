@@ -205,8 +205,8 @@ def get_hint(session_id: str):
         hint = suggest_next_message(
             sess["conv_state"], sess["scenario"], hint_provider
         )
-    except Exception:
-        hint = None
+    except Exception as exc:
+        hint = f"(Hint error: {exc})"
     return {"hint": hint}
 
 
