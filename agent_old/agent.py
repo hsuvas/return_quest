@@ -1,16 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from .conversation_state import ConversationState
-from .llm_provider import LLMProvider
-from .prompt_builder import build_agent_messages, build_customer_messages
-from .response_parser import (
+from conversation_state import ConversationState
+from llm_provider import LLMProvider
+from prompt_builder import build_agent_messages, build_customer_messages
+from response_parser import (
     AgentResponse,
     CustomerResponse,
     parse_agent_response,
     parse_customer_response,
 )
-from .tool_registry import get_agent_tools
+from tool_registry import get_agent_tools
 
 
 # ---------------------------------------------------------------------------

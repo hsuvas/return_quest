@@ -9,20 +9,33 @@ used by the dataset pipeline.
 """
 
 import json
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .conversation_state import ConversationState, ConversationTurn
-from .prompts.output_gen_prompt_agent_multitype import (
+from conversation_state import ConversationState, ConversationTurn
+
+# ---------------------------------------------------------------------------
+# Ensure the dataset package is importable
+# ---------------------------------------------------------------------------
+
+# In the standalone return_quest folder, prompt modules live alongside this file
+_THIS_DIR = str(Path(__file__).resolve().parent)
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+
+from output_gen_prompt_agent_multitype import (  # noqa: E402
     output_creation_prompt as _AGENT_PROMPT_RAW,
 )
-from .prompts.output_gen_prompt_customer_multitype import (
+from output_gen_prompt_customer_multitype import (  # noqa: E402
     customer_response_prompt as _CUSTOMER_PROMPT_RAW,
 )
-from .prompt_single import (
+from prompt_single import (  # noqa: E402
     single_agent_prompt as _SINGLE_AGENT_PROMPT_RAW,
     single_customer_prompt as _SINGLE_CUSTOMER_PROMPT_RAW,
 )
-from .tool_registry import format_tools_for_prompt_detailed, format_customer_tools_for_prompt_detailed
+
+from tool_registry import format_tools_for_prompt_detailed  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +61,9 @@ _AGENT_ALLOWED_KEYS = [
     "prior_variants_brief",
     "primary_policy_text",
     "related_policies_text",
-    "detail_agent",
+    "policy_ambiguities",
+    "persona_details",
+    "return_scenario_details",
     "conversation_history",
 ]
 
@@ -60,9 +75,7 @@ _CUSTOMER_ALLOWED_KEYS = [
     "return_scenario_details",
     "primary_policy_text",
     "conversation_history",
-    "revealed_facts",
     "latest_agent_message",
-    "customer_tools_text",
 ]
 
 _AGENT_PROMPT = _make_safe_format_string(_AGENT_PROMPT_RAW, _AGENT_ALLOWED_KEYS)
@@ -74,7 +87,9 @@ _SINGLE_AGENT_ALLOWED_KEYS = [
     "conversation_type",
     "primary_policy_text",
     "related_policies_text",
-    "detail_agent",
+    "policy_ambiguities",
+    "persona_details",
+    "return_scenario_details",
     "conversation_history",
 ]
 
@@ -84,9 +99,7 @@ _SINGLE_CUSTOMER_ALLOWED_KEYS = [
     "return_scenario_details",
     "primary_policy_text",
     "conversation_history",
-    "revealed_facts",
     "latest_agent_message",
-    "customer_tools_text",
 ]
 
 _SINGLE_AGENT_PROMPT = _make_safe_format_string(
@@ -121,38 +134,6 @@ def _latest_agent_message(history: List[ConversationTurn]) -> Optional[str]:
         if turn.turn == "agent" and turn.message and turn.message.strip():
             return turn.message.strip()
     return None
-
-
-def _agent_visible_history(history: List[ConversationTurn]) -> List[ConversationTurn]:
-    """Return history with customer tool calls and their results removed.
-
-    The agent must gather order/product facts via its own tool calls, not by
-    reading the customer's lookup results from the shared transcript. Customer
-    messages are kept — the customer can still report facts in text.
-    """
-    customer_tool_ids: set = set()
-    for turn in history:
-        if turn.turn == "tool_call" and turn.tool_calls:
-            for tc in turn.tool_calls:
-                if tc.tool_name.startswith("customer_"):
-                    customer_tool_ids.add(tc.tool_call_id)
-
-    filtered: List[ConversationTurn] = []
-    for turn in history:
-        if turn.turn == "tool_call" and turn.tool_calls:
-            agent_calls = [tc for tc in turn.tool_calls if not tc.tool_name.startswith("customer_")]
-            if agent_calls:
-                filtered.append(ConversationTurn(turn="tool_call", tool_calls=agent_calls))
-            # If all calls were customer tools, omit the turn entirely
-        elif turn.turn == "tool_result" and turn.tool_result:
-            tid = turn.tool_result.tool_call_id
-            tname = turn.tool_result.tool_name
-            if tid in customer_tool_ids or tname.startswith("customer_"):
-                continue
-            filtered.append(turn)
-        else:
-            filtered.append(turn)
-    return filtered
 
 
 # ---------------------------------------------------------------------------
@@ -217,12 +198,16 @@ def _build_agent_user_prompt(
     primary_policy_text = scenario["Policy"]["Primary Policy"]["text"]
     related_policies = scenario["Policy"].get("Related policies", [])
     related_blob = _related_policies_to_text(related_policies)
-    detail_agent = scenario.get("detail_agent", "")
 
-    agent_history = _agent_visible_history(state.history)
-    agent_history_str = json.dumps(
-        [t.model_dump() for t in agent_history], ensure_ascii=False, indent=2
-    ) if agent_history else "(empty)"
+    policy_ambiguities = scenario.get("task", {}).get("related_policy_issues", [])
+    if not isinstance(policy_ambiguities, list):
+        policy_ambiguities = []
+
+    persona_details = scenario.get("persona", {})
+    return_scenario_details = {
+        "scenario_id": scenario.get("scenario_id"),
+        "task": scenario.get("task", {}),
+    }
 
     return _AGENT_PROMPT.format(
         agent_persona=state.agent_persona,
@@ -231,8 +216,10 @@ def _build_agent_user_prompt(
         prior_variants_brief=prior_variants_brief,
         primary_policy_text=primary_policy_text,
         related_policies_text=related_blob,
-        detail_agent=detail_agent,
-        conversation_history=agent_history_str,
+        policy_ambiguities=_safe_json(policy_ambiguities),
+        persona_details=_safe_json(persona_details),
+        return_scenario_details=_safe_json(return_scenario_details),
+        conversation_history=state.get_formatted_history_str(),
     )
 
 
@@ -243,20 +230,26 @@ def _build_single_agent_user_prompt(
     primary_policy_text = scenario["Policy"]["Primary Policy"]["text"]
     related_policies = scenario["Policy"].get("Related policies", [])
     related_blob = _related_policies_to_text(related_policies)
-    detail_agent = scenario.get("detail_agent", "")
 
-    agent_history = _agent_visible_history(state.history)
-    agent_history_str = json.dumps(
-        [t.model_dump() for t in agent_history], ensure_ascii=False, indent=2
-    ) if agent_history else "(empty)"
+    policy_ambiguities = scenario.get("task", {}).get("related_policy_issues", [])
+    if not isinstance(policy_ambiguities, list):
+        policy_ambiguities = []
+
+    persona_details = scenario.get("persona", {})
+    return_scenario_details = {
+        "scenario_id": scenario.get("scenario_id"),
+        "task": scenario.get("task", {}),
+    }
 
     return _SINGLE_AGENT_PROMPT.format(
         agent_persona=state.agent_persona,
         conversation_type="single",
         primary_policy_text=primary_policy_text,
         related_policies_text=related_blob,
-        detail_agent=detail_agent,
-        conversation_history=agent_history_str,
+        policy_ambiguities=_safe_json(policy_ambiguities),
+        persona_details=_safe_json(persona_details),
+        return_scenario_details=_safe_json(return_scenario_details),
+        conversation_history=state.get_formatted_history_str(),
     )
 
 
@@ -294,7 +287,6 @@ def _build_customer_user_prompt(
         "task": scenario.get("task", {}),
     }
     latest = _latest_agent_message(state.history) or "(none yet)"
-    revealed_text = _safe_json(state.revealed_facts) if state.revealed_facts else "[]"
 
     return _CUSTOMER_PROMPT.format(
         conversation_type="multitype",
@@ -304,9 +296,7 @@ def _build_customer_user_prompt(
         return_scenario_details=_safe_json(return_scenario_details),
         primary_policy_text=primary_policy_text,
         conversation_history=state.get_formatted_history_str(),
-        revealed_facts=revealed_text,
         latest_agent_message=latest,
-        customer_tools_text=format_customer_tools_for_prompt_detailed(),
     )
 
 
@@ -321,7 +311,6 @@ def _build_single_customer_user_prompt(
         "task": scenario.get("task", {}),
     }
     latest = _latest_agent_message(state.history) or "(none yet)"
-    revealed_text = _safe_json(state.revealed_facts) if state.revealed_facts else "[]"
 
     return _SINGLE_CUSTOMER_PROMPT.format(
         conversation_type="single",
@@ -329,7 +318,5 @@ def _build_single_customer_user_prompt(
         return_scenario_details=_safe_json(return_scenario_details),
         primary_policy_text=primary_policy_text,
         conversation_history=state.get_formatted_history_str(),
-        revealed_facts=revealed_text,
         latest_agent_message=latest,
-        customer_tools_text=format_customer_tools_for_prompt_detailed(),
     )

@@ -24,11 +24,9 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 
 _SHOWCASE_DIR = Path(__file__).resolve().parent
-_AGENT_DIR = str(_SHOWCASE_DIR / "agent")
 
-for _d in (_AGENT_DIR, str(_SHOWCASE_DIR)):
-    if _d not in sys.path:
-        sys.path.insert(0, _d)
+if str(_SHOWCASE_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHOWCASE_DIR))
 
 from showcase_backend import (  # noqa: E402
     run_agent_turn,

@@ -5,6 +5,7 @@ Uses ``huggingface_hub.InferenceClient`` for chat completions.
 Serves as a fallback when LiteLLM does not support the requested model.
 """
 
+import json
 import os
 from typing import Any, Dict, List, Optional
 

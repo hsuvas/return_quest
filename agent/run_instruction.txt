@@ -1,0 +1,57 @@
+python agent/run.py \
+    --input_path ./dataset/outputs/scenarios_03/scenarios.jsonl \
+    --output_dir ./outputs/agent_run_01 \
+    --num_variants 5 \
+    --agent_persona RANDOM \
+    --num_scenarios 20 \
+    --agent_model gpt-4.1-2025-04-14 \
+    --customer_model gpt-4.1-2025-04-14 
+
+python agent/run.py \
+  --input_path ./dataset/outputs/scenarios_03/scenarios.jsonl \
+  --output_dir ./outputs/agent_run_01 \
+  --agent_model gpt-4.1-2025-04-14 \
+  --customer_model gpt-4.1-2025-04-14 \
+  --num_variants 5 \
+  --max_turns 10 \
+  --agent_persona RANDOM \
+  --use_native_tools \
+  --num_scenarios 20
+
+
+python src/agent/run.py \
+    --input_path src/dataset/outputs/scenarios_03/scenarios.jsonl \
+    --output_dir ./output \
+    --num_variants 1 \
+    --num_scenarios 10 \
+    --max_turns 10 \
+    --agent_model huggingface/Qwen/Qwen2.5-32B-Instruct \
+    --customer_model huggingface/Qwen/Qwen2.5-32B-Instruct
+
+
+
+huggingface/Qwen/Qwen3-32B \  huggingface/openai/gpt-oss-20b \  huggingface/mistralai/Mistral-7B-Instruct-v0.3 \
+huggingface/Qwen/Qwen3-32B huggingface/openai/gpt-oss-20b   huggingface/mistralai/Mistral-7B-Instruct-v0.3
+
+
+python agent/run.py \
+  --input_path ./dataset/pilot_run_23Mar/scenarios/scenarios.jsonl \
+  --output_dir ./dataset/pilot_run_23Mar/scenarios \
+  --agent_model huggingface/Qwen/Qwen3-32B \
+  --customer_model huggingface/Qwen/Qwen3-32B \
+  --num_variants 1 \
+  --max_turns 15 \
+  --agent_persona RANDOM \
+  --use_native_tools \
+  --num_scenarios 100
+
+
+eval
+
+python src/evaluation/evaluator.py \
+  --conversations_path src/dataset/pilot_run_23Mar/scenarios/gpt-4.1-2025-04-14/with_resolution/conversations.jsonl \
+  --output_dir src/dataset/pilot_run_23Mar/scenarios \
+  --max_transcripts 2 \
+  --classification_model gpt-5.2-2025-12-11 \
+  --quality_model  gpt-5.2-2025-12-11 \
+  --temperature 1

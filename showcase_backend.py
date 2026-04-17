@@ -21,25 +21,21 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Path setup — make both agent and dataset packages importable
+# Path setup — ensure project root is importable so `agent` package resolves
 # ---------------------------------------------------------------------------
 
 _SHOWCASE_DIR = Path(__file__).resolve().parent
-# Standalone: agent/ contains both agent code and dataset prompt modules
-_AGENT_DIR = str(_SHOWCASE_DIR / "agent")
 
-for _d in (_AGENT_DIR,):
-    if _d not in sys.path:
-        sys.path.insert(0, _d)
+if str(_SHOWCASE_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHOWCASE_DIR))
 
-from agent import LLMAgent, LLMCustomer  # noqa: E402
-from conversation_state import ConversationState, ToolCallRecord  # noqa: E402
-from environment import Environment  # noqa: E402
-from llm_provider import LLMProvider  # noqa: E402
-from prompt_builder import build_customer_messages  # noqa: E402
-from response_parser import AgentResponse, parse_customer_response  # noqa: E402
-from tool_registry import get_agent_tools, get_tool_names, get_customer_tools  # noqa: E402
-from response_parser import validate_tool_call  # noqa: E402
+from agent.agent import LLMAgent, LLMCustomer  # noqa: E402
+from agent.conversation_state import ConversationState, ToolCallRecord  # noqa: E402
+from agent.environment import Environment  # noqa: E402
+from agent.llm_provider import LLMProvider  # noqa: E402
+from agent.prompt_builder import build_customer_messages  # noqa: E402
+from agent.response_parser import AgentResponse, parse_customer_response, validate_tool_call  # noqa: E402
+from agent.tool_registry import get_agent_tools, get_tool_names, get_customer_tools  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

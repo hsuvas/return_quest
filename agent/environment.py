@@ -9,20 +9,11 @@ consistency when the same tool call is repeated.
 
 import copy
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from conversation_state import ToolCallRecord, ToolResultRecord
-from llm_provider import LLMProvider
-
-# Import deterministic return results
-import sys
-from pathlib import Path
-
-_THIS_DIR = str(Path(__file__).resolve().parent)
-if _THIS_DIR not in sys.path:
-    sys.path.insert(0, _THIS_DIR)
-
-from toolset import PROCESS_RETURN_RESULTS  # noqa: E402
+from .conversation_state import ToolCallRecord, ToolResultRecord
+from .llm_provider import LLMProvider
+from .toolset import PROCESS_RETURN_RESULTS
 
 
 # ---------------------------------------------------------------------------
@@ -34,15 +25,70 @@ You are a backend system simulator for a customer support platform.
 
 Given scenario context and a tool call, generate a plausible JSON response
 that is consistent with the scenario details (order IDs, product names, dates,
-amounts, conditions, etc.).
+amounts, etc.).
 
 Rules:
 - Return ONLY a valid JSON object (no markdown fences, no explanation).
-- The response must be realistic and internally consistent with the scenario.
-- For read tools: return the information that would exist in the system.
+- If a "Canonical Order Record" is provided, use its values EXACTLY (same order_id,
+  item names, prices, delivery dates, customer_id, payment method, address).
+  Do NOT modify, invent, or deviate from any value present in the canonical record.
+- For agent-side tools (any tool NOT prefixed with "customer_"): return only
+  CRM-visible facts (order_id, items, prices, delivery status/dates, payment,
+  promotions, shipping address). Do NOT include item condition, inspection findings,
+  usage history, or any information about how the customer used or handled an item —
+  those facts are disclosed through conversation, not stored in CRM.
+- For customer-facing tools (prefixed with "customer_"): return all order details
+  including delivery status. Still do not invent facts not in the scenario context.
 - For write tools: return a success confirmation with relevant IDs and status.
 - Use details from the scenario context wherever possible.
 - Do NOT contradict the scenario facts.
+- For customer_id fields, always use a system-generated ID format (e.g., CUST-XXXXXXXX).
+  Do NOT use the customer's name, Persona_id, or any other non-numeric identifier.
+"""
+
+
+# ---------------------------------------------------------------------------
+# System prompt for the return-fact verifier
+# ---------------------------------------------------------------------------
+
+_RETURN_VERIFICATION_SYSTEM_PROMPT = """\
+You are a fact-verification module for a customer support system.
+
+You will be given:
+1. The GROUND TRUTH scenario — what actually happened with this order.
+2. The CUSTOMER STATEMENTS — what the customer claimed during the conversation.
+3. The PROCESS RETURN ARGUMENTS — what the agent is about to submit.
+
+Your task: identify facts in the customer statements that CONTRADICT or SIGNIFICANTLY DIFFER
+from the ground truth. Focus only on:
+- Item conditions (opened, used, damaged, defective)
+- Return reason (why the customer says they are returning)
+- Which items are being returned
+- Delivery timing (if relevant to return eligibility)
+
+Do NOT flag:
+- Facts that are absent from customer statements (missing detail is not a lie)
+- Minor phrasing differences or synonym variation
+- Policy interpretations (your job is fact-checking only)
+- Anything confirmed by tool results in the conversation
+
+Return ONLY valid JSON:
+{
+  "verified": true or false,
+  "discrepancies": [
+    {
+      "field": "string (e.g. item_condition, return_reason, items_in_return)",
+      "customer_claim": "string — what the customer said",
+      "actual": "string — what the ground truth says",
+      "severity": "minor or major"
+    }
+  ],
+  "verification_hints": [
+    "string — a neutral clarifying question the agent can ask the customer to surface the correct fact"
+  ]
+}
+
+Set verified=true if there are no MAJOR discrepancies. Minor discrepancies alone do not block verification.
 """
 
 
@@ -70,8 +116,16 @@ class Environment:
         # Cache: signature -> result dict
         self._cache: Dict[str, Dict[str, Any]] = {}
 
-        # Pre-extract scenario context once
-        self._scenario_context = self._build_scenario_context()
+        # Canonical order record: populated from the first order lookup result.
+        # All subsequent order lookups use it as authoritative context so that
+        # order_id, item names, prices, dates, addresses are consistent across
+        # customer and agent tool calls.
+        self._canonical_order_record: Optional[Dict[str, Any]] = None
+
+        # Pre-extract scenario contexts once (agent tools see order-facts only;
+        # customer tools see the full order minus policy-analysis metadata)
+        self._agent_tool_context = self._build_agent_tool_context()
+        self._customer_tool_context = self._build_customer_tool_context()
 
     # ----- public API -----
 
@@ -90,21 +144,11 @@ class Environment:
                 result=self._cache[sig],
             )
 
-        # Special-case: deterministic handlers (avoids extra LLM call per tool)
+        # Special-case: deterministic handlers
         if tool_call.tool_name == "get_policy_info":
             result = self._handle_get_policy_info(tool_call.arguments)
         elif tool_call.tool_name == "process_return":
             result = self._handle_process_return(tool_call.arguments)
-        elif tool_call.tool_name == "get_order_details":
-            result = self._handle_get_order_details(tool_call.arguments)
-        elif tool_call.tool_name == "check_return_eligibility":
-            result = self._handle_check_return_eligibility(tool_call.arguments)
-        elif tool_call.tool_name == "get_product_details":
-            result = self._handle_get_product_details(tool_call.arguments)
-        elif tool_call.tool_name == "get_customer_purchase_history":
-            result = self._handle_get_customer_purchase_history(tool_call.arguments)
-        elif tool_call.tool_name == "get_return_status":
-            result = self._handle_get_return_status(tool_call.arguments)
         else:
             result = self._generate_tool_response(tool_call)
 
@@ -167,105 +211,9 @@ class Environment:
         result["customer_id"] = arguments.get("customer_id", "UNKNOWN")
         return result
 
-    def _handle_get_order_details(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Return order details derived from scenario task."""
-        task = self.scenario.get("task", {})
-        persona = self.scenario.get("persona", {})
-        items = task.get("items", [])
-        return {
-            "status": "success",
-            "order_id": task.get("order_id", arguments.get("order_id", "UNKNOWN")),
-            "customer_name": persona.get("Name", "Customer"),
-            "customer_id": f"CID-{persona.get('Name', 'CUST').replace(' ', '').upper()[:8]}",
-            "order_date": task.get("purchase_date", "2025-01-01"),
-            "delivery_date": task.get("delivery_date", "2025-01-10"),
-            "items": [
-                {
-                    "product_id": item.get("product_id", f"PROD-{i}"),
-                    "product_name": item.get("product_name", "Unknown Product"),
-                    "quantity": item.get("quantity", 1),
-                    "price": item.get("selling_price", 0),
-                    "seller": "Amazon" if item.get("is_amazon_seller") == "Y" else "Third-Party Seller",
-                }
-                for i, item in enumerate(items)
-            ],
-            "total_amount": sum(
-                float(str(item.get("selling_price", 0)).replace("$", "").replace(",", "") or 0)
-                for item in items
-            ),
-            "shipping_address": persona.get("Location", "Unknown"),
-        }
-
-    def _handle_check_return_eligibility(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Return eligibility status from scenario context."""
-        task = self.scenario.get("task", {})
-        items = task.get("items", [])
-        reasons = task.get("return_reasons", {})
-        reason = list(reasons.values())[0] if reasons else "Customer request"
-        return {
-            "status": "success",
-            "eligible": True,
-            "reason": reason,
-            "return_window_days": 30,
-            "days_since_delivery": task.get("days_since_delivery", 7),
-            "items_eligible": [
-                {"product_name": item.get("product_name", "Item"), "eligible": True}
-                for item in items
-            ],
-            "policy_note": "Item falls within the standard 30-day return window.",
-        }
-
-    def _handle_get_product_details(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Return product details from scenario items list."""
-        task = self.scenario.get("task", {})
-        items = task.get("items", [])
-        product_id = arguments.get("product_id", "")
-        # Match by product_id or fall back to first item
-        item = next(
-            (i for i in items if str(i.get("product_id", "")) == str(product_id)),
-            items[0] if items else {},
-        )
-        return {
-            "status": "success",
-            "product_id": item.get("product_id", product_id or "UNKNOWN"),
-            "product_name": item.get("product_name", "Unknown Product"),
-            "description": item.get("description", ""),
-            "price": item.get("selling_price", 0),
-            "category": item.get("category", "General"),
-            "seller": "Amazon" if item.get("is_amazon_seller") == "Y" else "Third-Party Seller",
-            "return_policy": "30-day return window applies.",
-        }
-
-    def _handle_get_customer_purchase_history(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Return a minimal synthetic purchase history."""
-        persona = self.scenario.get("persona", {})
-        task = self.scenario.get("task", {})
-        return {
-            "status": "success",
-            "customer_name": persona.get("Name", "Customer"),
-            "total_orders": 5,
-            "return_rate": "10%",
-            "recent_orders": [
-                {
-                    "order_id": task.get("order_id", "UNKNOWN"),
-                    "status": "delivered",
-                    "return_requested": True,
-                }
-            ],
-            "account_standing": "good",
-        }
-
-    def _handle_get_return_status(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Return 'no prior return' status (fresh conversation)."""
-        task = self.scenario.get("task", {})
-        return {
-            "status": "success",
-            "order_id": arguments.get("order_id", task.get("order_id", "UNKNOWN")),
-            "return_status": "not_initiated",
-            "message": "No return has been initiated for this order yet.",
-        }
-
     # ----- LLM-based response generation -----
+
+    _ORDER_LOOKUP_TOOLS = frozenset({"get_order_details", "customer_view_order_details"})
 
     def _generate_tool_response(self, tool_call: ToolCallRecord) -> Dict[str, Any]:
         """Use the LLM to produce a plausible tool response."""
@@ -282,21 +230,60 @@ class Environment:
                 temperature=self.sim_temperature,
                 max_tokens=self.sim_max_tokens,
             )
-            return self._parse_sim_response(response.content or "{}")
+            result = self._parse_sim_response(response.content or "{}")
         except Exception as e:
-            # Fallback: return a generic success stub
-            return {
+            result = {
                 "status": "success",
                 "tool_name": tool_call.tool_name,
                 "note": f"Simulated response (generation failed: {e})",
             }
 
+        # Store the first order lookup as the canonical record so all subsequent
+        # order queries (regardless of tool name) reference the same facts.
+        if (
+            self._canonical_order_record is None
+            and tool_call.tool_name in self._ORDER_LOOKUP_TOOLS
+            and result.get("order_id")
+        ):
+            self._canonical_order_record = result
+
+        return result
+
     def _build_tool_sim_prompt(self, tool_call: ToolCallRecord) -> str:
-        """Construct the user prompt for the tool-response simulator."""
+        """Construct the user prompt for the tool-response simulator.
+
+        Customer tools receive the full order context (minus policy-analysis metadata).
+        Agent tools receive only CRM-style order facts — no return narrative or conditions.
+        When a canonical order record exists, it is injected as the authoritative
+        reference to guarantee consistency across all tool calls.
+        """
+        is_customer_tool = tool_call.tool_name.startswith("customer_")
+        context = (
+            self._customer_tool_context if is_customer_tool else self._agent_tool_context
+        )
         parts = [
             "## Scenario Context",
-            self._scenario_context,
+            context,
             "",
+        ]
+
+        if (
+            self._canonical_order_record is not None
+            and tool_call.tool_name in self._ORDER_LOOKUP_TOOLS
+        ):
+            parts += [
+                "## Canonical Order Record (authoritative — match these values exactly)",
+                json.dumps(self._canonical_order_record, ensure_ascii=False),
+                "",
+            ]
+            if not is_customer_tool:
+                parts += [
+                    "IMPORTANT: For this agent-side tool response, omit all item condition,",
+                    "inspection, or usage information even if present in the canonical record.",
+                    "",
+                ]
+
+        parts += [
             "## Tool Call",
             f"Tool: {tool_call.tool_name}",
             f"Arguments: {json.dumps(tool_call.arguments, ensure_ascii=False)}",
@@ -305,34 +292,109 @@ class Environment:
         ]
         return "\n".join(parts)
 
+    # ----- verification -----
+
+    def verify_return(
+        self, history: List[Dict[str, Any]], arguments: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """LLM-based fact check: customer claims vs scenario ground truth.
+
+        Returns {"verified": bool, "discrepancies": [...], "verification_hints": [...]}.
+        Fails open (verified=True) on any exception so the conversation is never blocked
+        by a verification infrastructure failure.
+        """
+        task = self.scenario.get("task", {})
+        ground_truth = task.get("detail") or task.get("task") or "(not available)"
+
+        customer_msgs = [
+            t.get("message", "")
+            for t in history
+            if t.get("turn") == "customer" and t.get("message")
+        ]
+        customer_text = "\n".join(f"- {m}" for m in customer_msgs) or "(none)"
+
+        user_prompt = "\n".join([
+            "## Ground Truth Scenario",
+            ground_truth,
+            "",
+            "## Customer Statements (from conversation)",
+            customer_text,
+            "",
+            "## Process Return Arguments",
+            json.dumps(arguments, ensure_ascii=False),
+            "",
+            "Verify the customer statements against the ground truth.",
+        ])
+
+        messages = [
+            {"role": "system", "content": _RETURN_VERIFICATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            response = self.llm_provider.call_text_only(
+                messages=messages,
+                temperature=0.0,
+                max_tokens=800,
+            )
+            result = self._parse_sim_response(response.content or "{}")
+            if "verified" not in result:
+                return {"verified": True, "discrepancies": [], "verification_hints": []}
+            return result
+        except Exception as e:
+            print(f"  [Environment] verify_return failed ({e}); proceeding as verified.")
+            return {"verified": True, "discrepancies": [], "verification_hints": []}
+
     # ----- helpers -----
 
-    def _build_scenario_context(self) -> str:
-        """Extract a compact text summary of the scenario for the simulator."""
-        parts = []
+    # Policy-analysis fields the customer would never see in their own order view
+    _CUSTOMER_EXCLUDED_KEYS = frozenset({
+        "related_policy_issues", "all_ambiguity_types",
+        "primary_ambiguity_type", "stratum_label",
+        "complexity_level", "complexity_ordinal",
+    })
 
-        # Task details (order info, product, dates, etc.)
+    # CRM order-record fields visible to an agent tool call
+    _ORDER_FACT_KEYS = frozenset({
+        "order_id", "order_number", "order_date", "delivery_date",
+        "products_involved", "quantities", "prices", "payment_method",
+    })
+
+    def _build_agent_tool_context(self) -> str:
+        """CRM-style order facts only — no narrative, conditions, or return context.
+
+        Deliberately excludes first_customer_message so the simulator cannot infer
+        item conditions from what the customer said; those must come through conversation.
+        Uses structured fields when present, falls back to task detail prose.
+        """
         task = self.scenario.get("task", {})
-        if task:
-            parts.append(f"Task detail: {json.dumps(task, ensure_ascii=False)}")
-
-        # Persona
+        order_facts = {k: task[k] for k in self._ORDER_FACT_KEYS if k in task}
+        parts = []
+        if order_facts:
+            parts.append(f"Order facts: {json.dumps(order_facts, ensure_ascii=False)}")
+        elif task.get("detail"):
+            parts.append(f"Order facts: {task['detail']}")
         persona = self.scenario.get("persona", {})
         if persona:
-            name = persona.get("Name", "Customer")
-            parts.append(f"Customer name: {name}")
-
-        # Opening message (contains order references)
-        opening = self.scenario.get("first_customer_message", "")
-        if opening:
-            parts.append(f"Customer opening message: {opening}")
-
-        # Scenario ID
+            parts.append(f"Customer profile: {json.dumps(persona, ensure_ascii=False)}")
         sid = self.scenario.get("scenario_id", "")
         if sid:
             parts.append(f"Scenario ID: {sid}")
-
         return "\n".join(parts) if parts else "(no scenario context available)"
+
+    def _build_customer_tool_context(self) -> str:
+        """Full order and return details minus internal policy-analysis metadata."""
+        task = self.scenario.get("task", {})
+        customer_task = {
+            k: v for k, v in task.items()
+            if k not in self._CUSTOMER_EXCLUDED_KEYS
+        }
+        parts = [f"Order and return details: {json.dumps(customer_task, ensure_ascii=False)}"]
+        name = self.scenario.get("persona", {}).get("Name", "Customer")
+        parts.append(f"Customer name: {name}")
+        sid = self.scenario.get("scenario_id", "")
+        if sid:
+            parts.append(f"Scenario ID: {sid}")
+        return "\n".join(parts)
 
     @staticmethod
     def _signature(tool_call: ToolCallRecord) -> str:

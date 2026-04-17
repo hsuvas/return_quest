@@ -5,7 +5,8 @@ Wraps the Academic AI REST endpoint (https://it-u-api.academic-ai.at)
 for chat completions. Used as the primary provider with OpenAI as fallback.
 """
 
-from typing import Any, Dict, List
+import json
+from typing import Any, Dict, List, Optional
 
 import requests
 

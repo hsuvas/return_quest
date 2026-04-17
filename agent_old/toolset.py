@@ -7,6 +7,9 @@ conversations with customers. Tools are divided into:
 - Write tools: Modify orders, process transactions, update balances
 """
 
+import hashlib
+from typing import Any
+
 # =============================================================================
 # READ TOOLS
 # =============================================================================
@@ -58,12 +61,6 @@ GET_ORDER_DETAILS = {
                     "type": "boolean",
                     "description": "Whether to include shipping tracking information",
                     "default": True
-                },
-                "detail_type": {
-                    "type": "string",
-                    "enum": ["items", "delivery_dates", "promotions", "payment", "status", "full"],
-                    "description": "Which aspect of the order to retrieve. 'items': product names, SKUs, quantities, prices. 'delivery_dates': per-item delivery dates. 'promotions': discounts and bundles applied. 'payment': payment method and totals. 'status': shipping and delivery status. 'full': all order information.",
-                    "default": "full"
                 }
             },
             "required": ["order_id"]
@@ -174,18 +171,19 @@ GET_RETURN_FREQUENCY_ASSESSMENT = {
     "type": "function",
     "function": {
         "name": "get_return_frequency_assessment",
-        "description": "Retrieve a customer's return frequency metrics and abuse risk level. Returns return_count, return_rate, abuse_risk_level (LOW/MEDIUM/HIGH), and recommended_deduction_percentage (0, 5, or 10). Call this before finalising any refund or return resolution to determine if a return-frequency penalty applies.",
+        "description": (
+            "Retrieve a customer's return frequency metrics and abuse risk assessment. "
+            "Returns total returns in the past 12 months, return rate, flagged product categories, "
+            "abuse risk level (LOW/MEDIUM/HIGH), and a recommended deduction percentage (0%, 5%, or 10%) "
+            "to apply to the refund amount when abuse risk is elevated. "
+            "Call this tool for any return request to check whether a return-frequency penalty applies before finalizing a resolution."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "customer_id": {
                     "type": "string",
                     "description": "The customer's unique account identifier"
-                },
-                "lookback_months": {
-                    "type": "integer",
-                    "description": "Number of past months to evaluate (default 12)",
-                    "default": 12
                 }
             },
             "required": ["customer_id"]
@@ -256,7 +254,7 @@ PROCESS_RETURN = {
     "type": "function",
     "function": {
         "name": "process_return",
-        "description": "Initiate and process a return for one or more items from an order. Creates a return label, updates order status, and initiates the refund process. Use this when a customer wants to return an item.",
+        "description": "Initiate and process a return for one or more items from an order. Creates a return label, updates order status, and initiates the refund process. Use this when the agent has decided on a resolution for the customer's return request. The resolution_type determines the action taken.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -267,6 +265,19 @@ PROCESS_RETURN = {
                 "customer_id": {
                     "type": "string",
                     "description": "The customer's account identifier for verification"
+                },
+                "resolution_type": {
+                    "type": "string",
+                    "enum": [
+                        "RETURN_REFUND_FULL_BANK",
+                        "RETURN_REFUND_PARTIAL_BANK",
+                        "RETURN_REFUND_GIFT_CARD",
+                        "DENY_REFUND",
+                        "ESCALATE_HUMAN_AGENT",
+                        "REPLACEMENT_EXCHANGE",
+                        "USER_ABORT"
+                    ],
+                    "description": "The resolution type for this return request"
                 },
                 "items_to_return": {
                     "type": "array",
@@ -322,7 +333,7 @@ PROCESS_RETURN = {
                     "description": "How the customer will return the item"
                 }
             },
-            "required": ["order_id", "customer_id", "items_to_return", "return_reason"]
+            "required": ["order_id", "customer_id", "resolution_type", "items_to_return", "return_reason"]
         }
     }
 }
@@ -541,6 +552,155 @@ APPLY_DISCOUNT = {
 
 
 # =============================================================================
+# PROCESS_RETURN DETERMINISTIC RESULTS PER RESOLUTION TYPE
+# =============================================================================
+
+PROCESS_RETURN_RESULTS: dict[str, dict[str, Any]] = {
+    "RETURN_REFUND_FULL_BANK": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "RETURN_REFUND_FULL_BANK",
+        "refund_amount": "full_order_total",
+        "refund_method": "original_payment",
+        "refund_destination": "original bank/credit card on file",
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_refund_days": "5-7 business days after item received",
+        "message": "Full refund approved. A prepaid return shipping label has been generated. The refund will be credited to the original payment method within 5-7 business days after the returned item is received and inspected.",
+    },
+    "RETURN_REFUND_PARTIAL_BANK": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "RETURN_REFUND_PARTIAL_BANK",
+        "refund_amount": "partial_order_total",
+        "refund_method": "original_payment",
+        "refund_destination": "original bank/credit card on file",
+        "deductions_applied": ["restocking_fee", "used_item_depreciation"],
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_refund_days": "5-7 business days after item received",
+        "message": "Partial refund approved. Applicable deductions (e.g., restocking fee) have been applied. The refund will be credited to the original payment method within 5-7 business days after the returned item is received and inspected.",
+    },
+    "RETURN_REFUND_GIFT_CARD": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "RETURN_REFUND_GIFT_CARD",
+        "refund_amount": "applicable_refund_total",
+        "refund_method": "gift_card",
+        "refund_destination": "Amazon Gift Card balance",
+        "gift_card_code": "GC-{order_id}",
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_refund_days": "immediate upon item receipt confirmation",
+        "message": "Refund approved as Amazon Gift Card credit. The credit will be applied to the customer's account immediately after the returned item is received. A prepaid return shipping label has been generated.",
+    },
+    "DENY_REFUND": {
+        "status": "denied",
+        "return_id": None,
+        "resolution_type": "DENY_REFUND",
+        "refund_amount": 0,
+        "refund_method": None,
+        "denial_reasons": ["outside_return_window", "ineligible_item_category", "item_condition_not_acceptable"],
+        "return_label_generated": False,
+        "message": "Return/refund request denied. The item does not meet the eligibility criteria for a return based on the applicable return policy. The customer has been informed of the specific policy clause(s) that apply.",
+    },
+    "ESCALATE_HUMAN_AGENT": {
+        "status": "escalated",
+        "return_id": None,
+        "resolution_type": "ESCALATE_HUMAN_AGENT",
+        "escalation_id": "ESC-{order_id}",
+        "escalation_tier": "specialist",
+        "estimated_response_time": "24-48 hours",
+        "message": "The case has been escalated to a human specialist for further review. The customer will be contacted within 24-48 hours with an update. A case reference number has been generated for tracking.",
+    },
+    "REPLACEMENT_EXCHANGE": {
+        "status": "approved",
+        "return_id": "RET-{order_id}",
+        "resolution_type": "REPLACEMENT_EXCHANGE",
+        "exchange_order_id": "EXC-{order_id}",
+        "refund_amount": 0,
+        "refund_method": None,
+        "replacement_shipping": "standard",
+        "return_label_generated": True,
+        "return_shipping_method": "prepaid_label",
+        "estimated_delivery_days": "3-5 business days after original item shipped back",
+        "message": "Exchange approved. A replacement item will be shipped once the original item is received. A prepaid return shipping label has been generated. Any price difference will be handled accordingly.",
+    },
+    "USER_ABORT": {
+        "status": "cancelled",
+        "return_id": None,
+        "resolution_type": "USER_ABORT",
+        "refund_amount": 0,
+        "refund_method": None,
+        "return_label_generated": False,
+        "message": "The customer has chosen to withdraw their return request. No further action is required. The conversation has been closed.",
+    },
+}
+
+
+# =============================================================================
+# RETURN FREQUENCY ASSESSMENT DETERMINISTIC RESULTS
+# =============================================================================
+
+def get_return_frequency_assessment_result(customer_id: str) -> dict:
+    """
+    Return a deterministic return-frequency assessment for a customer.
+
+    Risk profiles:
+      LOW    — return_count 1-3,  return_rate <15%,  deduction 0%
+      MEDIUM — return_count 4-7,  return_rate 15-30%, deduction 5%
+      HIGH   — return_count 8+,   return_rate >30%,   deduction 10%
+
+    The profile is derived from a hash of the customer_id so that the same
+    customer always receives the same result within a pipeline run.
+    """
+    # Use a stable hash (not Python's hash(), which is randomized per-process)
+    bucket = int(hashlib.md5(customer_id.encode()).hexdigest(), 16) % 3  # 0=LOW, 1=MEDIUM, 2=HIGH
+
+    if bucket == 0:
+        return {
+            "customer_id": customer_id,
+            "return_count_12_months": 2,
+            "return_rate_percent": 8.0,
+            "flagged_categories": [],
+            "abuse_risk_level": "LOW",
+            "recommended_deduction_percent": 0,
+            "assessment_notes": (
+                "Customer has a normal return frequency (2 returns in the past 12 months, "
+                "8% return rate). No deduction applies."
+            ),
+        }
+    elif bucket == 1:
+        return {
+            "customer_id": customer_id,
+            "return_count_12_months": 6,
+            "return_rate_percent": 22.0,
+            "flagged_categories": ["fashion_accessories", "clothing"],
+            "abuse_risk_level": "MEDIUM",
+            "recommended_deduction_percent": 5,
+            "assessment_notes": (
+                "Customer has an elevated return frequency (6 returns in the past 12 months, "
+                "22% return rate) with repeated returns in fashion accessories. "
+                "A 5% return-frequency deduction is recommended."
+            ),
+        }
+    else:
+        return {
+            "customer_id": customer_id,
+            "return_count_12_months": 11,
+            "return_rate_percent": 38.0,
+            "flagged_categories": ["fashion_accessories", "electronics", "clothing"],
+            "abuse_risk_level": "HIGH",
+            "recommended_deduction_percent": 10,
+            "assessment_notes": (
+                "Customer has a high return frequency (11 returns in the past 12 months, "
+                "38% return rate) across multiple categories. Account has been flagged. "
+                "A 10% return-frequency deduction is recommended."
+            ),
+        }
+
+
+# =============================================================================
 # TOOL COLLECTIONS
 # =============================================================================
 
@@ -562,6 +722,47 @@ WRITE_TOOLS = [
 ]
 
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
+
+
+# =============================================================================
+# TOOL METADATA
+# =============================================================================
+
+TOOL_CATEGORIES = {
+    "read": {
+        "description": "Tools for retrieving information without modifying state",
+        "tools": ["get_product_info", "get_order_details", "check_inventory", "get_purchase_history", "get_policy_info", "get_return_frequency_assessment"]
+    },
+    "write": {
+        "description": "Tools for modifying orders, processing transactions, and updating balances",
+        "tools": ["update_order", "process_return", "process_exchange", "issue_refund", "apply_discount"]
+    },
+    "customer": {
+        "description": "Tools available to customers during support conversations",
+        "tools": ["withdraw_from_conversation", "customer_view_order_details", "customer_check_item_availability", "customer_confirm_returned_items", "customer_inspect_profile"]
+    }
+}
+
+TOOL_DESCRIPTIONS = {
+    # Agent tools
+    "get_product_info": "Retrieve product details (price, description, availability)",
+    "get_order_details": "Check existing orders for the user",
+    "check_inventory": "Determine if an item is available",
+    "get_purchase_history": "Context for returns/exchanges",
+    "get_policy_info": "Get domain-specific rules for returns, exchanges, discounts",
+    "get_return_frequency_assessment": "Assess customer return frequency and abuse risk; returns recommended deduction %",
+    "update_order": "Modify an existing purchase",
+    "process_return": "Issue a return transaction",
+    "process_exchange": "Swap one item for another in an order",
+    "issue_refund": "Adjust payment/credit balances",
+    "apply_discount": "Update order pricing with discounts or gift cards",
+    # Customer tools
+    "withdraw_from_conversation": "End the support session",
+    "customer_view_order_details": "View own order information",
+    "customer_check_item_availability": "Check product stock availability",
+    "customer_confirm_returned_items": "Verify return status",
+    "customer_inspect_profile": "Review account profile information"
+}
 
 
 # =============================================================================
@@ -744,61 +945,28 @@ CUSTOMER_TOOLS = [
 ]
 
 
-# =============================================================================
-# DETERMINISTIC PROCESS_RETURN RESULTS
-# Used by Environment._handle_process_return to return consistent results
-# for each resolution type without calling the LLM.
-# =============================================================================
+def get_tool_by_name(tool_name: str) -> dict | None:
+    """Retrieve a tool definition by its function name."""
+    for tool in ALL_TOOLS + CUSTOMER_TOOLS:
+        if tool["function"]["name"] == tool_name:
+            return tool
+    return None
 
-PROCESS_RETURN_RESULTS = {
-    "RETURN_REFUND_FULL_BANK": {
-        "status": "success",
-        "action": "return_initiated",
-        "return_label_url": "https://returns.example.com/label/{order_id}",
-        "refund_method": "original_payment_method",
-        "estimated_refund_days": 3,
-        "message": "Return initiated. Full refund to your original payment method within 3-5 business days of receiving the item.",
-    },
-    "RETURN_REFUND_PARTIAL_BANK": {
-        "status": "success",
-        "action": "return_initiated",
-        "return_label_url": "https://returns.example.com/label/{order_id}",
-        "refund_method": "original_payment_method",
-        "refund_type": "partial",
-        "estimated_refund_days": 3,
-        "message": "Return initiated. Partial refund to your original payment method within 3-5 business days of receiving the item.",
-    },
-    "RETURN_REFUND_GIFT_CARD": {
-        "status": "success",
-        "action": "return_initiated",
-        "return_label_url": "https://returns.example.com/label/{order_id}",
-        "refund_method": "gift_card",
-        "estimated_refund_days": 1,
-        "message": "Return initiated. Refund issued as store credit/gift card within 1-2 business days of receiving the item.",
-    },
-    "DENY_REFUND": {
-        "status": "denied",
-        "action": "return_denied",
-        "message": "Return request denied. The item does not meet the return eligibility criteria per current policy.",
-    },
-    "ESCALATE_HUMAN_AGENT": {
-        "status": "escalated",
-        "action": "escalated_to_specialist",
-        "ticket_id": "ESC-{order_id}",
-        "message": "Case escalated to a specialist. Customer will be contacted within 24-48 hours.",
-    },
-    "REPLACEMENT_EXCHANGE": {
-        "status": "success",
-        "action": "exchange_initiated",
-        "return_label_url": "https://returns.example.com/label/{order_id}",
-        "message": "Exchange initiated. Return the original item using the label provided. Replacement ships within 1-2 business days.",
-    },
-    "USER_ABORT": {
-        "status": "cancelled",
-        "action": "request_cancelled",
-        "message": "Return request cancelled at customer request.",
-    },
-}
+
+def get_tools_by_category(category: str) -> list[dict]:
+    """Retrieve all tools in a specific category."""
+    if category == "read":
+        return READ_TOOLS
+    elif category == "write":
+        return WRITE_TOOLS
+    elif category == "customer":
+        return CUSTOMER_TOOLS
+    elif category == "all":
+        return ALL_TOOLS
+    elif category == "all_with_customer":
+        return ALL_TOOLS + CUSTOMER_TOOLS
+    else:
+        return []
 
 
 def format_tools_for_prompt() -> str:

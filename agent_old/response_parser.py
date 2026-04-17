@@ -12,13 +12,13 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from .conversation_state import Resolution, ToolCallRecord
+from conversation_state import Resolution, ToolCallRecord
 
 # ---------------------------------------------------------------------------
 # JSON extraction regexes (mirrors src/dataset/output_collect patterns)
 # ---------------------------------------------------------------------------
 
-_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", re.DOTALL)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", re.DOTALL)
 _JSON_OBJ_RE = re.compile(r"(\{.*\})", re.DOTALL)
 
 
