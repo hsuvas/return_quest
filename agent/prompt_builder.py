@@ -202,9 +202,9 @@ def _build_agent_system_prompt(use_native_tools: bool) -> str:
             "\n\n"
             + format_tools_for_prompt_detailed()
             + "\n\n"
-            "- MANDATORY: You MUST include at least one tool call in tool_calls_made.\n"
-            "- Specify which tools you would call and with what arguments.\n"
-            "- Tool results will be provided back to you in the conversation history.\n"
+            "- Include tool calls in `tool_calls_made` only when you need information not yet in the conversation history.\n"
+            "- If all needed information is already in the conversation history, `tool_calls_made` MUST be an empty list [].\n"
+            "- Tool results are provided back to you in the conversation history.\n"
         )
     return base
 

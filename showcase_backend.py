@@ -545,6 +545,71 @@ def make_conversation_state(
 # Single agent turn
 # ---------------------------------------------------------------------------
 
+_PLANNING_PATTERNS = [
+    "please hold on",
+    "i'll look into",
+    "i'll check this",
+    "i'll check the",
+    "i'll review",
+    "i'll update you",
+    "i'll get back",
+    "i need a moment",
+    "one moment please",
+    "give me a moment",
+    "i'll be right back",
+    "i'll gather",
+    "i'll retrieve",
+    "i'll pull up",
+    "i'll investigate",
+    "let me look into",
+    "i'll look up",
+    "shortly with next steps",
+    "get back to you",
+    "next steps shortly",
+    "confirm the return eligibility and process",
+    "i'll confirm",
+    "i'll verify",
+    "i'll process",
+]
+
+
+def _has_planning_phrases(message: str) -> bool:
+    """Return True if the message contains async-promise planning phrases."""
+    msg_lower = message.lower()
+    return any(p in msg_lower for p in _PLANNING_PATTERNS)
+
+
+def _rewrite_as_direct_message(state: ConversationState, provider: LLMProvider) -> str:
+    """Make a focused LLM call to produce a direct, non-planning agent message."""
+    history_str = state.get_formatted_history_str()
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an Amazon customer support agent. "
+                "FORBIDDEN phrases — NEVER use: 'please hold on', 'I'll check', 'I'll review', "
+                "'I'll update you shortly', 'I'll get back to you', 'one moment', 'give me a moment'. "
+                "Write a direct response using ONLY facts from tool results already in the conversation history. "
+                "End with a specific question the customer can answer immediately."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Conversation history (tool results are included):\n"
+                f"{history_str}\n\n"
+                "Write the agent's next customer-facing message. "
+                "No planning phrases. Must end with a concrete question:"
+            ),
+        },
+    ]
+    try:
+        resp = provider.call_text_only(messages=messages, temperature=0.5, max_tokens=300)
+        return (resp.content or "").strip()
+    except Exception:
+        return ""
+
+
 def run_agent_turn(
     state: ConversationState,
     scenario: Dict[str, Any],
@@ -560,10 +625,6 @@ def run_agent_turn(
     The caller is responsible for appending the customer message to state
     *before* calling this function.
     """
-    # use_native_tools=False: agent outputs a single JSON blob containing both
-    # tool_calls_made and conversation_flow[0].message in one LLM call.
-    # This avoids the native-tools bug where the LLM sends tool calls with
-    # empty content, leaving agent_resp.message = None.
     agent = LLMAgent(
         llm_provider=provider,
         scenario=scenario,
@@ -576,8 +637,7 @@ def run_agent_turn(
     tool_results: List[Dict[str, Any]] = []
     agent_resp = None
 
-    # Multi-round inner loop: execute tools, then call agent again so its
-    # customer-visible message is written AFTER seeing tool results.
+    # Phase 1: Tool-execution loop — keep calling until no new tools are needed.
     _MAX_TOOL_ROUNDS = 5
     for _round in range(_MAX_TOOL_ROUNDS):
         agent_resp = agent.generate_response(state=state)
@@ -599,12 +659,20 @@ def run_agent_turn(
                     executed_new = True
 
         if executed_new:
-            # Loop back: agent will now see tool results and write a real reply
             continue
-        break  # No new tools executed — agent_resp.message is the final reply
+        break
 
-    # Append agent message — always use fallback if LLM produced nothing
-    message = agent_resp.message or "I'm looking into your request. Could you give me a moment?"
+    # Phase 2: Message quality check — if the agent wrote a planning message,
+    # make a focused rewrite call with hard constraints against planning phrases.
+    message = agent_resp.message or ""
+    if not message or _has_planning_phrases(message):
+        rewritten = _rewrite_as_direct_message(state, provider)
+        if rewritten and not _has_planning_phrases(rewritten):
+            message = rewritten
+
+    if not message:
+        message = "Could you tell me more about the issue with your item? For example, what condition is it in and when did it arrive?"
+
     state.append_agent_message(message)
 
     # Update state metadata from the final agent response
@@ -679,52 +747,79 @@ def suggest_next_message(
     scenario: Dict[str, Any],
     provider: LLMProvider,
 ) -> str:
-    """Return a one-sentence hint telling the player exactly what to say next."""
-    # Find the last agent message
+    """Return a one-sentence hint telling the player exactly what to say next.
+
+    Rule-based: never calls LLM, so it never fails or returns empty.
+    """
     last_agent_message = ""
     for turn in reversed(state.history):
         if turn.turn == "agent" and turn.message:
             last_agent_message = turn.message
             break
 
-    if not last_agent_message:
-        return "Describe your return request and provide your order details to the agent."
-
-    # Build task context from scenario
     task = scenario.get("task", {})
+    order_id = task.get("order_id", "")
     items = task.get("items", [])
-    product_names = ", ".join(i.get("product_name", "") for i in items) or "N/A"
+    product_names = ", ".join(
+        i.get("product_name", "") if isinstance(i, dict) else str(i) for i in items
+    ) or "the item"
     return_reasons = task.get("return_reasons", {})
-    reasons_text = "; ".join(f"{k}: {v}" for k, v in return_reasons.items()) or "N/A"
-    task_description = task.get("task", task.get("detail", ""))
+    if isinstance(return_reasons, dict):
+        reasons_text = "; ".join(f"{k}: {v}" for k, v in return_reasons.items())
+    else:
+        reasons_text = str(return_reasons)
+    purchase_date = task.get("purchase_date", task.get("order_date", ""))
+    delivery_date = task.get("delivery_date", "")
+    persona = scenario.get("persona", {})
 
-    task_context = (
-        f"Order ID: {task.get('order_id', 'N/A')}\n"
-        f"Purchase date: {task.get('purchase_date', task.get('order_date', 'N/A'))}\n"
-        f"Delivery date: {task.get('delivery_date', 'N/A')}\n"
-        f"Product(s): {product_names}\n"
-        f"Return reason(s): {reasons_text}\n"
-        f"Task: {task_description}"
-    )
+    if not last_agent_message:
+        return (
+            f"Tell the agent you want to return {product_names}"
+            + (f" (order {order_id})" if order_id else "")
+            + (f" because: {reasons_text[:60]}" if reasons_text else "")
+            + "."
+        )
 
-    prompt = (
-        "You are a coach helping a player in a customer-service role-play game. "
-        "The player is the customer. "
-        "Based on the agent's last message and the player's scenario facts, "
-        "write ONE short sentence (max 25 words) telling the player exactly what to say or provide next. "
-        "Mention the specific value, date, or detail from the scenario they should use. "
-        "Be concrete — do not be vague or generic.\n\n"
-        f"Agent's last message:\n{last_agent_message}\n\n"
-        f"Player's scenario:\n{task_context}\n\n"
-        "Hint:"
+    msg_lower = last_agent_message.lower()
+
+    if any(kw in msg_lower for kw in ["order number", "order id", "order #", "your order"]):
+        if order_id:
+            return f"Tell the agent your order number is {order_id}."
+
+    if any(kw in msg_lower for kw in ["condition", "damage", "defect", "issue with", "problem with", "wrong", "broken", "missing", "fault"]):
+        if reasons_text:
+            return f"Explain the problem: {reasons_text[:80]}."
+
+    if any(kw in msg_lower for kw in ["purchase date", "when did you buy", "when was it purchased", "when you ordered", "date of purchase"]):
+        if purchase_date:
+            return f"Tell the agent the purchase date was {purchase_date}."
+
+    if any(kw in msg_lower for kw in ["delivered", "delivery date", "when did it arrive", "when was it delivered", "received it", "arrival"]):
+        if delivery_date:
+            return f"Tell the agent it was delivered on {delivery_date}."
+
+    if any(kw in msg_lower for kw in ["proceed", "go ahead", "confirm", "sound good", "would you like", "shall i", "can i go ahead"]):
+        return "Say 'Yes, please proceed' to confirm the resolution the agent proposed."
+
+    if any(kw in msg_lower for kw in ["name", "account", "email", "identify yourself", "your name"]):
+        name = persona.get("Name", "")
+        if name:
+            return f"Give the agent your name: {name}."
+
+    if any(kw in msg_lower for kw in ["refund method", "gift card", "original payment", "bank account", "store credit"]):
+        return "Tell the agent your preferred refund method (bank account or gift card)."
+
+    # Extract the last question from the agent's message as a fallback
+    sentences = last_agent_message.replace("?", "?\n").split("\n")
+    last_question = next((s.strip() for s in reversed(sentences) if "?" in s and s.strip()), "")
+    if last_question:
+        return f'Answer: "{last_question[:100]}"'
+
+    return (
+        f"Respond to the agent about returning {product_names}"
+        + (f" (order {order_id})" if order_id else "")
+        + "."
     )
-    messages = [{"role": "user", "content": prompt}]
-    try:
-        resp = provider.call_text_only(messages=messages, temperature=0.3, max_tokens=60)
-        hint = (resp.content or "").strip().lstrip("Hint:").strip()
-        return hint or "Answer the agent's question using your scenario details."
-    except Exception:
-        return "Answer the agent's question using your scenario details."
 
 
 # ---------------------------------------------------------------------------

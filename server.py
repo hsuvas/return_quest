@@ -197,13 +197,16 @@ def get_hint(session_id: str):
     if session_id not in _sessions:
         raise HTTPException(status_code=404, detail="Session not found.")
     sess = _sessions[session_id]
-    hint_provider = make_provider(model=HINT_MODEL, temperature=0.7, max_tokens=200)
+    # Reuse the session's model so the hint call uses the same credentials/model
+    hint_provider = make_provider(
+        model=sess["provider"].model, temperature=0.3, max_tokens=80
+    )
     try:
         hint = suggest_next_message(
             sess["conv_state"], sess["scenario"], hint_provider
         )
-    except Exception:
-        hint = None
+    except Exception as e:
+        hint = f"Answer the agent's last question using your scenario details. (debug: {e})"
     return {"hint": hint}
 
 
