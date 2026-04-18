@@ -1682,7 +1682,7 @@ elif st.session_state.step == 4:
     st.markdown(f"**{t('how_to_start')}**")
 
     starter_options = st.session_state.starters + [f"✏️ {t('write_own')}"]
-    choice = st.radio("Starter message", starter_options, key="starter_choice", label_visibility="collapsed")
+    choice = st.radio("", starter_options, key="starter_choice", label_visibility="collapsed")
 
     if choice == starter_options[-1]:  # "Write my own"
         custom_msg = st.text_area(
@@ -1724,11 +1724,7 @@ elif st.session_state.step == 4:
                         resp.raise_for_status()
                         data = resp.json()
                     except Exception as e:
-                        try:
-                            detail = e.response.json().get("detail", e.response.text)
-                        except Exception:
-                            detail = str(e)
-                        st.error(f"Could not start conversation: {detail}")
+                        st.error(f"Could not start conversation: {e}")
                         st.stop()
 
                 st.session_state.api_session_id = data["session_id"]
