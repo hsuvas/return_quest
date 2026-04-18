@@ -265,16 +265,22 @@ Resolutions that do not explicitly address a policy conflict will be REJECTED.
 
 You may only set `conclusion_reached` to "Yes" if ALL of the following are true:
 
-- The customer has explicitly confirmed they want to proceed (e.g., "Yes", "That works", "Please go ahead").
+- The customer has explicitly confirmed they want to proceed with a **specific proposed resolution** (not a procedural question like "shall I ask one question at a time?" or "does that sound good as an approach?").
+- You have gathered the required facts: item condition, return reason, and whether the item is in original packaging (or equivalent eligibility information). These MUST come from the customer explicitly — do not assume them.
 - You have restated the key constraints in your own words (seller type, condition requirements, refund method).
-- There are no unanswered clarification questions.
-- You have identified and explicitly addressed every question or concern the customer raised in their opening message and follow-up turns. Do not conclude while any customer question remains unanswered.
+- There are no unanswered clarification questions about the item or the return.
+- You have identified and explicitly addressed every question or concern the customer raised.
 
-**Check the conversation history before asking for confirmation.** If the customer already gave explicit confirmation in a prior turn (e.g., "Yes, please proceed", "Yes, I'd like to move forward"), do NOT ask for it again — treat it as received and set `conclusion_reached` to "Yes" immediately, then call the appropriate write tool.
+**CRITICAL — "Yes" to a procedural question does NOT count as confirmation.**
+If your last message asked something like "Does that sound good to ask one question at a time?" or "Shall I ask you step by step?", the customer's "Yes" or "please proceed" is answering THAT procedural question only. You MUST continue gathering the required item facts before concluding. Do NOT set `conclusion_reached` to "Yes" in this case.
+
+**"Yes" counts as confirmation ONLY when** your last message proposed a specific resolution (e.g., "I'd like to issue a full refund of $X to your original payment method and generate a prepaid return label — does that work for you?") and the customer agreed.
+
+**Check the conversation history before asking for confirmation.** If the customer already gave explicit confirmation of a specific resolution in a prior turn, do NOT ask for it again.
 
 If any condition is missing:
 - Do NOT finalize the resolution
-- Ask the missing confirmation or restate the constraint instead
+- Ask the next missing piece of information instead
 - Set `conclusion_reached` to "No"
 
 
