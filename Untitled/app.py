@@ -1186,19 +1186,29 @@ def _save_session_data():
         _fmt_conversation(messages),
     ]
 
-    # Ensure header exists
+    # Ensure header exists (overwrite cell A1 rather than inserting a row,
+    # which would shift existing data and break row-index lookups)
     first_row = sheet.row_values(1)
     if not first_row or first_row[0] != "date":
-        sheet.insert_row(_SHEET_HEADER, 1)
+        sheet.update("A1", [_SHEET_HEADER], value_input_option="USER_ENTERED")
+        first_row = _SHEET_HEADER
+
+    # Resolve which column holds session_id dynamically
+    try:
+        sid_col = first_row.index("session_id")
+    except ValueError:
+        sid_col = 2  # fallback
 
     # Find and update existing row, or append
     all_values = sheet.get_all_values()
     for i, data_row in enumerate(all_values[1:], start=2):
-        if len(data_row) >= 3 and data_row[2] == session_id:
+        if len(data_row) > sid_col and data_row[sid_col] == session_id:
             sheet.update(f"A{i}", [row], value_input_option="USER_ENTERED")
             return
 
-    sheet.append_row(row, value_input_option="USER_ENTERED")
+    # table_range="A1" anchors the append at column A regardless of any
+    # pre-existing data elsewhere in the sheet
+    sheet.append_row(row, value_input_option="USER_ENTERED", table_range="A1")
 
 
 def _log_event(event_type: str, data: dict):
@@ -1983,7 +1993,6 @@ elif st.session_state.step == 5:
             if data.get("resolution"):
                 st.session_state.resolution = data["resolution"]
             st.session_state["input_counter"] += 1
-            _save_session_data()
             st.rerun()
 
         if st.session_state.turn_count >= 9:
