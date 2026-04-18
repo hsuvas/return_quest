@@ -22,7 +22,6 @@ from typing import Any, Dict, List, Optional
 
 import openai
 
-from .academic_ai_client import AcademicAIClient
 from .huggingface_client import HuggingFaceClient
 
 
@@ -147,7 +146,7 @@ class LLMProvider:
         fallback_model: Optional[str] = None,
         max_retries: int = 3,
         initial_retry_delay: float = 1.0,
-        academic_ai_client: Optional[AcademicAIClient] = None,
+        #academic_ai_client: Optional[AcademicAIClient] = None,
         huggingface_client: Optional[HuggingFaceClient] = None,
     ):
         self.model = model
@@ -157,7 +156,7 @@ class LLMProvider:
         self.fallback_model = fallback_model
         self.max_retries = max_retries
         self.initial_retry_delay = initial_retry_delay
-        self.academic_ai_client = academic_ai_client
+        #self.academic_ai_client = academic_ai_client
         self.huggingface_client = huggingface_client
 
         # Cumulative token counters (thread-safe enough for our purposes)
@@ -253,16 +252,16 @@ class LLMProvider:
         model: str = kwargs.get("model", "")
 
         # --- 1. Academic AI ---
-        if self.academic_ai_client is not None:
-            result, err = self._retry(
-                lambda: self._call_academic_ai(kwargs),
-                self.max_retries,
-                self.initial_retry_delay,
-            )
-            if result is not None:
-                return result
-            print(f"[AcademicAI] All attempts failed ({err}), falling through.")
-            last_err = err
+        # if self.academic_ai_client is not None:
+        #     result, err = self._retry(
+        #         lambda: self._call_academic_ai(kwargs),
+        #         self.max_retries,
+        #         self.initial_retry_delay,
+        #     )
+        #     if result is not None:
+        #         return result
+        #     print(f"[AcademicAI] All attempts failed ({err}), falling through.")
+        #     last_err = err
 
         # --- 2. HuggingFace (primary, for huggingface/ models) ---
         if model.startswith("huggingface/"):
@@ -335,35 +334,35 @@ class LLMProvider:
             f"LLM call failed after all attempts. Last error: {last_err}"
         )
 
-    def _call_academic_ai(self, kwargs: Dict[str, Any]) -> LLMResponse:
-        """Single Academic AI call. Translates kwargs to the Academic AI API.
+    # def _call_academic_ai(self, kwargs: Dict[str, Any]) -> LLMResponse:
+    #     """Single Academic AI call. Translates kwargs to the Academic AI API.
 
-        The Academic AI endpoint only accepts ``user`` and ``assistant`` roles
-        (no ``system``), and does not support ``max_tokens`` or ``top_p``.
-        """
-        api_kwargs: Dict[str, Any] = {}
-        if "temperature" in kwargs:
-            api_kwargs["temperature"] = kwargs["temperature"]
-        # NOTE: max_tokens and top_p are NOT supported by Academic AI API
-        if "tools" in kwargs:
-            api_kwargs["tools"] = kwargs["tools"]
-        if "tool_choice" in kwargs:
-            api_kwargs["tool_choice"] = kwargs["tool_choice"]
+    #     The Academic AI endpoint only accepts ``user`` and ``assistant`` roles
+    #     (no ``system``), and does not support ``max_tokens`` or ``top_p``.
+    #     """
+    #     api_kwargs: Dict[str, Any] = {}
+    #     if "temperature" in kwargs:
+    #         api_kwargs["temperature"] = kwargs["temperature"]
+    #     # NOTE: max_tokens and top_p are NOT supported by Academic AI API
+    #     if "tools" in kwargs:
+    #         api_kwargs["tools"] = kwargs["tools"]
+    #     if "tool_choice" in kwargs:
+    #         api_kwargs["tool_choice"] = kwargs["tool_choice"]
 
-        # Convert system messages → user messages (API only accepts user/assistant)
-        messages = []
-        for msg in kwargs["messages"]:
-            if msg.get("role") == "system":
-                messages.append({"role": "user", "content": msg["content"]})
-            else:
-                messages.append(msg)
+    #     # Convert system messages → user messages (API only accepts user/assistant)
+    #     messages = []
+    #     for msg in kwargs["messages"]:
+    #         if msg.get("role") == "system":
+    #             messages.append({"role": "user", "content": msg["content"]})
+    #         else:
+    #             messages.append(msg)
 
-        raw = self.academic_ai_client.create_chat_completion(
-            model=kwargs["model"],
-            messages=messages,
-            **api_kwargs,
-        )
-        return LLMResponse.from_academic_ai(raw)
+    #     raw = self.academic_ai_client.create_chat_completion(
+    #         model=kwargs["model"],
+    #         messages=messages,
+    #         **api_kwargs,
+    #     )
+    #     return LLMResponse.from_academic_ai(raw)
 
     def _call_huggingface(self, kwargs: Dict[str, Any]) -> LLMResponse:
         """Single HuggingFace Inference API call.
