@@ -456,6 +456,27 @@ def build_scenario(
     purchase_date = (task_detail or {}).get("order_date", "")
     delivery_date = (task_detail or {}).get("delivery_date", "")
 
+    # CRM-visible product names (what the agent simulator can see via get_order_details)
+    products_involved = [item["product_name"] for item in selected_items]
+
+    # Seller type for the case brief
+    has_third_party = any(
+        str(item.get("is_amazon_seller", "Y")).strip().upper() != "Y"
+        for item in selected_items
+    )
+    seller_note = "Third-party seller (Fulfilled by Amazon)" if has_third_party else "Sold and fulfilled by Amazon"
+
+    # Short agent-visible case brief: order facts only, NO conditions or return reasons.
+    # This is what the new prompt_builder injects as {detail_agent}.
+    detail_agent = (
+        f"Order ID: {order_id}\n"
+        f"Items: {', '.join(products_involved)}\n"
+        + (f"Order date: {purchase_date}\n" if purchase_date else "")
+        + (f"Delivery date: {delivery_date}\n" if delivery_date else "")
+        + f"Seller: {seller_note}\n"
+        f"Customer: {persona.get('Name', 'Customer')}"
+    )
+
     return {
         "scenario_id": f"demo_{uuid.uuid4().hex[:8]}",
         "Policy": {
@@ -466,9 +487,14 @@ def build_scenario(
             "Related policies": [],
         },
         "persona": persona,
+        # Short agent-visible brief (no conditions or return reasons)
+        "detail_agent": detail_agent,
         "task": {
             "order_id": order_id,
-            "items": selected_items,
+            "order_date": purchase_date,          # matches _ORDER_FACT_KEYS
+            "delivery_date": delivery_date,
+            "products_involved": products_involved,  # matches _ORDER_FACT_KEYS
+            "items": selected_items,              # full product dicts for environment
             "return_reasons": dict(zip(
                 [item["product_name"] for item in selected_items],
                 return_reasons,
@@ -478,7 +504,6 @@ def build_scenario(
             "related_policy_issues": policy_issues,
             "complexity_level": (task_detail or {}).get("complexity_level", "High Complexity"),
             "purchase_date": purchase_date,
-            "delivery_date": delivery_date,
         },
         "first_customer_message": first_message,
     }
