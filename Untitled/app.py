@@ -1,11 +1,10 @@
 """
 app.py — Return Quest (Gamified Edition)
 =========================================
-Streamlit demo for human-vs-LLM customer service conversations.
-Target audience: ages 10–18, pixel-art game aesthetic.
+
 
 Run from project root:
-    streamlit run src/showcase_lnr/app.py
+     streamlit run app.py
 """
 
 import os
@@ -20,11 +19,9 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 _SHOWCASE_DIR = Path(__file__).resolve().parent
-_AGENT_DIR = str(_SHOWCASE_DIR / "agent")
 
-for _d in (_AGENT_DIR, str(_SHOWCASE_DIR)):
-    if _d not in sys.path:
-        sys.path.insert(0, _d)
+if str(_SHOWCASE_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHOWCASE_DIR))
 
 try:
     from dotenv import load_dotenv
@@ -69,17 +66,15 @@ def _start_api_server():
 
 
 if "api_server_started" not in st.session_state:
-    # Propagate Streamlit secrets into os.environ before the server thread starts
-    for _key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
-        if _key not in os.environ:
-            try:
-                os.environ[_key] = st.secrets[_key]
-            except (KeyError, FileNotFoundError):
-                pass
     t = threading.Thread(target=_start_api_server, daemon=True)
     t.start()
-    # Brief wait so the server is ready before any HTTP call
-    time.sleep(1.5)
+    # Wait until the server is actually accepting connections (up to 10s)
+    for _ in range(20):
+        try:
+            httpx.get(f"{_API_BASE}/api/health", timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.5)
     st.session_state["api_server_started"] = True
 
 # ---------------------------------------------------------------------------
@@ -1052,85 +1047,21 @@ def next_step():
     go_to(st.session_state.step + 1)
 
 
-_LOG_PATH = _SHOWCASE_DIR.parent / "data_collect" / "showcase_log.jsonl"
+_LOG_PATH = _SHOWCASE_DIR / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
 
 
-def _get_gsheet():
-    """Return the first worksheet of the configured Google Sheet, or None if unconfigured."""
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-
-        creds = Credentials.from_service_account_info(
-            dict(st.secrets["gcp_service_account"]),
-            scopes=["https://www.googleapis.com/auth/spreadsheets"],
-        )
-        gc = gspread.authorize(creds)
-        return gc.open_by_key(st.secrets["google_sheets"]["spreadsheet_id"]).sheet1
-    except Exception:
-        return None
-
-
-_SHEET_HEADER = [
-    "date", "timestamp", "session_id",
-    "user_name", "persona_id", "location", "job_sector", "income_range",
-    "order_id", "items", "return_reasons", "purchase_date", "delivery_date",
-    "resolution_type", "resolution_description",
-    "turn_count", "tool_calls_count", "hints_used",
-    "conversation",
-]
-
-
-def _fmt_items(items) -> str:
-    """Return a compact comma-separated list of product names."""
-    if not items:
-        return ""
-    names = [i.get("product_name", i.get("name", "?")) if isinstance(i, dict) else str(i) for i in items]
-    return "; ".join(names)
-
-
-def _fmt_conversation(messages) -> str:
-    """Return conversation as plain text turns, omitting tool call payloads."""
-    lines = []
-    for m in messages:
-        role = "Customer" if m["role"] == "customer" else "Agent"
-        lines.append(f"[{role}] {m['text']}")
-        for tc in m.get("tool_calls", []) or m.get("tools", []):
-            if isinstance(tc, dict):
-                lines.append(f"  → tool: {tc.get('tool_name', '')}")
-    return "\n".join(lines)
-
-
 def _save_session_data():
-    """Save session to Google Sheets (upsert) and local fallback."""
-    now = datetime.datetime.now(datetime.timezone.utc)
-    date_str = now.strftime("%d-%m-%Y")
-    timestamp_iso = now.isoformat(timespec="seconds")
-
+    """Save user, task, conversation and resolution to a JSON file."""
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     persona = st.session_state.get("persona") or {}
+    first_name = (persona.get("Name") or "unknown").split()[0].lower()
     session_id = st.session_state.get("api_session_id") or st.session_state.get("session_id", "unknown")
+    filename = f"{first_name}_{session_id}.json"
     task = (st.session_state.get("scenario") or {}).get("task", {})
-    resolution = st.session_state.get("resolution")
-    messages = st.session_state.get("messages", [])
-
-    items = st.session_state.get("selected_items", task.get("items", []))
-    return_reasons = st.session_state.get("return_reasons", [])
-
-    res_type = ""
-    res_desc = ""
-    if resolution:
-        if isinstance(resolution, dict):
-            res_type = resolution.get("resolution_type", "")
-            res_desc = resolution.get("resolution_description", "")
-        else:
-            res_type = getattr(resolution, "resolution_type", "")
-            res_desc = getattr(resolution, "resolution_description", "")
-
     record = {
         "session_id": session_id,
-        "date": date_str,
-        "timestamp": timestamp_iso,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "user": {
             "name": persona.get("Name", ""),
             "location": persona.get("Location", ""),
@@ -1140,75 +1071,29 @@ def _save_session_data():
         },
         "task": {
             "order_id": task.get("order_id", ""),
-            "items": items,
-            "return_reasons": return_reasons,
+            "items": st.session_state.get("selected_items", task.get("items", [])),
+            "return_reasons": st.session_state.get("return_reasons", []),
             "purchase_date": task.get("purchase_date", ""),
             "delivery_date": task.get("delivery_date", ""),
         },
         "conversation": [
-            {"role": m["role"], "text": m["text"], "tool_calls": m.get("tools", [])}
-            for m in messages
+            {
+                "role": m["role"],
+                "text": m["text"],
+                "tool_calls": m.get("tools", []),
+            }
+            for m in st.session_state.get("messages", [])
         ],
-        "resolution": resolution,
+        "resolution": st.session_state.get("resolution"),
         "stats": {
             "turn_count": st.session_state.get("turn_count", 0),
             "tool_calls_count": st.session_state.get("tool_calls_count", 0),
             "hints_used": sum(st.session_state.get("turn_hint_flags", [])),
         },
     }
-
-    # Local fallback
-    try:
-        _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        first_name = (persona.get("Name") or "unknown").split()[0].lower()
-        with open(_OUTPUT_DIR / f"{first_name}_{session_id}.json", "w", encoding="utf-8") as f:
-            json.dump(record, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-    # Google Sheets upsert
-    sheet = _get_gsheet()
-    if sheet is None:
-        return
-
-    row = [
-        date_str, timestamp_iso, session_id,
-        persona.get("Name", ""), persona.get("Persona_id", ""),
-        persona.get("Location", ""), persona.get("Job_sector", ""), persona.get("Income_range", ""),
-        task.get("order_id", ""),
-        _fmt_items(items),
-        "; ".join(return_reasons) if return_reasons else "",
-        task.get("purchase_date", ""), task.get("delivery_date", ""),
-        res_type, res_desc,
-        record["stats"]["turn_count"],
-        record["stats"]["tool_calls_count"],
-        record["stats"]["hints_used"],
-        _fmt_conversation(messages),
-    ]
-
-    # Ensure header exists (overwrite cell A1 rather than inserting a row,
-    # which would shift existing data and break row-index lookups)
-    first_row = sheet.row_values(1)
-    if not first_row or first_row[0] != "date":
-        sheet.update("A1", [_SHEET_HEADER], value_input_option="USER_ENTERED")
-        first_row = _SHEET_HEADER
-
-    # Resolve which column holds session_id dynamically
-    try:
-        sid_col = first_row.index("session_id")
-    except ValueError:
-        sid_col = 2  # fallback
-
-    # Find and update existing row, or append
-    all_values = sheet.get_all_values()
-    for i, data_row in enumerate(all_values[1:], start=2):
-        if len(data_row) > sid_col and data_row[sid_col] == session_id:
-            sheet.update(f"A{i}", [row], value_input_option="USER_ENTERED")
-            return
-
-    # table_range="A1" anchors the append at column A regardless of any
-    # pre-existing data elsewhere in the sheet
-    sheet.append_row(row, value_input_option="USER_ENTERED", table_range="A1")
+    out_path = _OUTPUT_DIR / filename
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
 
 
 def _log_event(event_type: str, data: dict):
@@ -1295,7 +1180,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Step 5: hints panel lives here
+    # Step 5: character info panel
     if st.session_state.step == 5 and not st.session_state.finished:
         persona = st.session_state.persona
         turn = st.session_state.turn_count
@@ -1309,31 +1194,6 @@ with st.sidebar:
         st.markdown(f'<div class="px-bar">{bar}</div>', unsafe_allow_html=True)
         st.caption(f"{t('turn')}: {turn} / 10")
 
-        st.markdown("---")
-
-        if st.button(f"💡 {t('get_hint')}", key="hint_btn_sidebar", use_container_width=True):
-            with st.spinner(t("hint_generating")):
-                try:
-                    resp = httpx.get(
-                        f"{_API_BASE}/api/session/{st.session_state.api_session_id}/hint",
-                        timeout=35,
-                    )
-                    if resp.status_code == 200:
-                        st.session_state.hint_text = resp.json().get("hint", "(No hint available)")
-                    else:
-                        st.session_state.hint_text = "(Hint unavailable)"
-                except Exception as e:
-                    st.session_state.hint_text = f"(Error: {e})"
-            st.rerun()
-
-        if st.session_state.hint_text:
-            st.info(st.session_state.hint_text)
-            if st.button(f"↓ {t('use_hint')}", key="use_hint_sidebar", use_container_width=True):
-                st.session_state.hint_used_this_turn = True
-                st.session_state["_prefill_msg"] = st.session_state.hint_text
-                st.session_state["input_counter"] += 1
-                st.session_state.hint_text = None
-                st.rerun()
         st.markdown("---")
 
     if st.button(f"🔄 {t('restart')}", use_container_width=True, key="restart_btn"):
@@ -1715,6 +1575,12 @@ elif st.session_state.step == 3:
         "gpt-4o-mini",
         "gpt-4-turbo",
     ]
+    MODEL_SUMMARIES = {
+        "gpt-4.1-2025-04-14": "GPT-4.1 (default) — OpenAI's latest flagship model. Very capable, follows instructions precisely, and handles complex multi-turn conversations well.",
+        "gpt-4o": "GPT-4o — Fast and capable multimodal model from OpenAI. Great balance of speed and reasoning for most conversations.",
+        "gpt-4o-mini": "GPT-4o Mini — Lightweight and quick. Lower cost; good for simple cases but may miss policy nuances.",
+        "gpt-4-turbo": "GPT-4 Turbo — Previous-generation flagship. Strong reasoning, slightly slower than GPT-4o.",
+    }
     col_m, col_custom = st.columns([2, 2])
     with col_m:
         model_sel = st.selectbox(
@@ -1734,12 +1600,6 @@ elif st.session_state.step == 3:
         else:
             st.session_state.model_choice = model_sel
 
-    MODEL_SUMMARIES = {
-        "gpt-4.1-2025-04-14": "GPT-4.1 (default) — OpenAI's latest flagship model. Very capable, follows instructions precisely, and handles complex multi-turn conversations well.",
-        "gpt-4o": "GPT-4o — Fast and capable multimodal model from OpenAI. Great balance of speed and reasoning for most conversations.",
-        "gpt-4o-mini": "GPT-4o Mini — Lightweight and quick. Lower cost; good for simple cases but may miss policy nuances.",
-        "gpt-4-turbo": "GPT-4 Turbo — Previous-generation flagship. Strong reasoning, slightly slower than GPT-4o.",
-    }
     summary = MODEL_SUMMARIES.get(st.session_state.model_choice)
     if summary:
         st.caption(f"ℹ️ {summary}")
@@ -1864,8 +1724,7 @@ elif st.session_state.step == 4:
                         resp.raise_for_status()
                         data = resp.json()
                     except Exception as e:
-                        detail = getattr(getattr(e, "response", None), "text", str(e))
-                        st.error(f"Could not start conversation: {detail}")
+                        st.error(f"Could not start conversation: {e}")
                         st.stop()
 
                 st.session_state.api_session_id = data["session_id"]
@@ -2208,7 +2067,6 @@ elif st.session_state.step == 6:
                 st.session_state.hint_text = data.get("hint")
                 st.session_state.turn_hint_flags.append(False)
                 st.session_state.turn_count += 1
-                _save_session_data()
                 go_to(5)
 
     else:
@@ -2249,9 +2107,9 @@ elif st.session_state.step == 6:
             st.markdown(f"**{t('next_steps')}:** {resolution.customer_next_steps}")
 
         with st.expander(f"📜 {t('full_transcript')}"):
+            _transcript_info = AGENT_INFO.get(st.session_state.get("agent_persona_choice", "FAIR"), {})
             for msg in st.session_state.messages:
-                _agent_info = AGENT_INFO.get(st.session_state.get("agent_persona_choice", ""), {})
-                role_label = f"**{persona['Name']}**" if msg["role"] == "customer" else f"**{_agent_info.get('label', 'Agent')} Agent**"
+                role_label = f"**{persona['Name']}**" if msg["role"] == "customer" else f"**{_transcript_info.get('label', 'Support')} Agent**"
                 st.markdown(f"{role_label}: {msg['text']}")
                 if msg.get("tools"):
                     for tool in msg["tools"]:

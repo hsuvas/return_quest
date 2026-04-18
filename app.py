@@ -1,8 +1,7 @@
 """
 app.py — Return Quest (Gamified Edition)
 =========================================
-Streamlit demo for human-vs-LLM customer service conversations.
-Target audience: ages 10–18, pixel-art game aesthetic.
+
 
 Run from project root:
      streamlit run app.py
