@@ -1682,7 +1682,7 @@ elif st.session_state.step == 4:
     st.markdown(f"**{t('how_to_start')}**")
 
     starter_options = st.session_state.starters + [f"✏️ {t('write_own')}"]
-    choice = st.radio("", starter_options, key="starter_choice", label_visibility="collapsed")
+    choice = st.radio("Starter message", starter_options, key="starter_choice", label_visibility="collapsed")
 
     if choice == starter_options[-1]:  # "Write my own"
         custom_msg = st.text_area(
