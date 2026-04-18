@@ -1674,6 +1674,7 @@ elif st.session_state.step == 4:
     st.markdown(
         f'<div class="px-narrative">'
         f'<div class="px-narrative-title">📜 YOUR MISSION</div>'
+        f'<p><strong>You have started the return request in the app, now want to follow up with the agent.</strong></p>'
         f'{st.session_state.narrative}'
         f'</div>',
         unsafe_allow_html=True,
