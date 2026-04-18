@@ -7,8 +7,6 @@ conversations with customers. Tools are divided into:
 - Write tools: Modify orders, process transactions, update balances
 """
 
-from typing import Any
-
 # =============================================================================
 # READ TOOLS
 # =============================================================================
@@ -60,6 +58,12 @@ GET_ORDER_DETAILS = {
                     "type": "boolean",
                     "description": "Whether to include shipping tracking information",
                     "default": True
+                },
+                "detail_type": {
+                    "type": "string",
+                    "enum": ["items", "delivery_dates", "promotions", "payment", "status", "full"],
+                    "description": "Which aspect of the order to retrieve. 'items': product names, SKUs, quantities, prices. 'delivery_dates': per-item delivery dates. 'promotions': discounts and bundles applied. 'payment': payment method and totals. 'status': shipping and delivery status. 'full': all order information.",
+                    "default": "full"
                 }
             },
             "required": ["order_id"]
@@ -162,6 +166,29 @@ GET_POLICY_INFO = {
                 }
             },
             "required": ["policy_type"]
+        }
+    }
+}
+
+GET_RETURN_FREQUENCY_ASSESSMENT = {
+    "type": "function",
+    "function": {
+        "name": "get_return_frequency_assessment",
+        "description": "Retrieve a customer's return frequency metrics and abuse risk level. Returns return_count, return_rate, abuse_risk_level (LOW/MEDIUM/HIGH), and recommended_deduction_percentage (0, 5, or 10). Call this before finalising any refund or return resolution to determine if a return-frequency penalty applies.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "The customer's unique account identifier"
+                },
+                "lookback_months": {
+                    "type": "integer",
+                    "description": "Number of past months to evaluate (default 12)",
+                    "default": 12
+                }
+            },
+            "required": ["customer_id"]
         }
     }
 }
@@ -523,6 +550,7 @@ READ_TOOLS = [
     CHECK_INVENTORY,
     GET_PURCHASE_HISTORY,
     GET_POLICY_INFO,
+    GET_RETURN_FREQUENCY_ASSESSMENT,
 ]
 
 WRITE_TOOLS = [
@@ -534,133 +562,6 @@ WRITE_TOOLS = [
 ]
 
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
-
-
-# =============================================================================
-# PROCESS_RETURN DETERMINISTIC RESULTS PER RESOLUTION TYPE
-# =============================================================================
-
-PROCESS_RETURN_RESULTS: dict[str, dict[str, Any]] = {
-    "RETURN_REFUND_FULL_BANK": {
-        "status": "approved",
-        "return_id": "RET-{order_id}",
-        "resolution_type": "RETURN_REFUND_FULL_BANK",
-        "refund_amount": "full_order_total",
-        "refund_method": "original_payment",
-        "refund_destination": "original bank/credit card on file",
-        "return_label_generated": True,
-        "return_shipping_method": "prepaid_label",
-        "estimated_refund_days": "5-7 business days after item received",
-        "message": "Full refund approved. A prepaid return shipping label has been generated. The refund will be credited to the original payment method within 5-7 business days after the returned item is received and inspected.",
-    },
-    "RETURN_REFUND_PARTIAL_BANK": {
-        "status": "approved",
-        "return_id": "RET-{order_id}",
-        "resolution_type": "RETURN_REFUND_PARTIAL_BANK",
-        "refund_amount": "partial_order_total",
-        "refund_method": "original_payment",
-        "refund_destination": "original bank/credit card on file",
-        "deductions_applied": ["restocking_fee", "used_item_depreciation"],
-        "return_label_generated": True,
-        "return_shipping_method": "prepaid_label",
-        "estimated_refund_days": "5-7 business days after item received",
-        "message": "Partial refund approved. Applicable deductions (e.g., restocking fee) have been applied. The refund will be credited to the original payment method within 5-7 business days after the returned item is received and inspected.",
-    },
-    "RETURN_REFUND_GIFT_CARD": {
-        "status": "approved",
-        "return_id": "RET-{order_id}",
-        "resolution_type": "RETURN_REFUND_GIFT_CARD",
-        "refund_amount": "applicable_refund_total",
-        "refund_method": "gift_card",
-        "refund_destination": "Amazon Gift Card balance",
-        "gift_card_code": "GC-{order_id}",
-        "return_label_generated": True,
-        "return_shipping_method": "prepaid_label",
-        "estimated_refund_days": "immediate upon item receipt confirmation",
-        "message": "Refund approved as Amazon Gift Card credit. The credit will be applied to the customer's account immediately after the returned item is received. A prepaid return shipping label has been generated.",
-    },
-    "DENY_REFUND": {
-        "status": "denied",
-        "return_id": None,
-        "resolution_type": "DENY_REFUND",
-        "refund_amount": 0,
-        "refund_method": None,
-        "denial_reasons": ["outside_return_window", "ineligible_item_category", "item_condition_not_acceptable"],
-        "return_label_generated": False,
-        "message": "Return/refund request denied. The item does not meet the eligibility criteria for a return based on the applicable return policy. The customer has been informed of the specific policy clause(s) that apply.",
-    },
-    "ESCALATE_HUMAN_AGENT": {
-        "status": "escalated",
-        "return_id": None,
-        "resolution_type": "ESCALATE_HUMAN_AGENT",
-        "escalation_id": "ESC-{order_id}",
-        "escalation_tier": "specialist",
-        "estimated_response_time": "24-48 hours",
-        "message": "The case has been escalated to a human specialist for further review. The customer will be contacted within 24-48 hours with an update. A case reference number has been generated for tracking.",
-    },
-    "REPLACEMENT_EXCHANGE": {
-        "status": "approved",
-        "return_id": "RET-{order_id}",
-        "resolution_type": "REPLACEMENT_EXCHANGE",
-        "exchange_order_id": "EXC-{order_id}",
-        "refund_amount": 0,
-        "refund_method": None,
-        "replacement_shipping": "standard",
-        "return_label_generated": True,
-        "return_shipping_method": "prepaid_label",
-        "estimated_delivery_days": "3-5 business days after original item shipped back",
-        "message": "Exchange approved. A replacement item will be shipped once the original item is received. A prepaid return shipping label has been generated. Any price difference will be handled accordingly.",
-    },
-    "USER_ABORT": {
-        "status": "cancelled",
-        "return_id": None,
-        "resolution_type": "USER_ABORT",
-        "refund_amount": 0,
-        "refund_method": None,
-        "return_label_generated": False,
-        "message": "The customer has chosen to withdraw their return request. No further action is required. The conversation has been closed.",
-    },
-}
-
-
-# =============================================================================
-# TOOL METADATA
-# =============================================================================
-
-TOOL_CATEGORIES = {
-    "read": {
-        "description": "Tools for retrieving information without modifying state",
-        "tools": ["get_product_info", "get_order_details", "check_inventory", "get_purchase_history", "get_policy_info"]
-    },
-    "write": {
-        "description": "Tools for modifying orders, processing transactions, and updating balances",
-        "tools": ["update_order", "process_return", "process_exchange", "issue_refund", "apply_discount"]
-    },
-    "customer": {
-        "description": "Tools available to customers during support conversations",
-        "tools": ["withdraw_from_conversation", "customer_view_order_details", "customer_check_item_availability", "customer_confirm_returned_items", "customer_inspect_profile"]
-    }
-}
-
-TOOL_DESCRIPTIONS = {
-    # Agent tools
-    "get_product_info": "Retrieve product details (price, description, availability)",
-    "get_order_details": "Check existing orders for the user",
-    "check_inventory": "Determine if an item is available",
-    "get_purchase_history": "Context for returns/exchanges",
-    "get_policy_info": "Get domain-specific rules for returns, exchanges, discounts",
-    "update_order": "Modify an existing purchase",
-    "process_return": "Issue a return transaction",
-    "process_exchange": "Swap one item for another in an order",
-    "issue_refund": "Adjust payment/credit balances",
-    "apply_discount": "Update order pricing with discounts or gift cards",
-    # Customer tools
-    "withdraw_from_conversation": "End the support session",
-    "customer_view_order_details": "View own order information",
-    "customer_check_item_availability": "Check product stock availability",
-    "customer_confirm_returned_items": "Verify return status",
-    "customer_inspect_profile": "Review account profile information"
-}
 
 
 # =============================================================================
@@ -843,28 +744,61 @@ CUSTOMER_TOOLS = [
 ]
 
 
-def get_tool_by_name(tool_name: str) -> dict | None:
-    """Retrieve a tool definition by its function name."""
-    for tool in ALL_TOOLS + CUSTOMER_TOOLS:
-        if tool["function"]["name"] == tool_name:
-            return tool
-    return None
+# =============================================================================
+# DETERMINISTIC PROCESS_RETURN RESULTS
+# Used by Environment._handle_process_return to return consistent results
+# for each resolution type without calling the LLM.
+# =============================================================================
 
-
-def get_tools_by_category(category: str) -> list[dict]:
-    """Retrieve all tools in a specific category."""
-    if category == "read":
-        return READ_TOOLS
-    elif category == "write":
-        return WRITE_TOOLS
-    elif category == "customer":
-        return CUSTOMER_TOOLS
-    elif category == "all":
-        return ALL_TOOLS
-    elif category == "all_with_customer":
-        return ALL_TOOLS + CUSTOMER_TOOLS
-    else:
-        return []
+PROCESS_RETURN_RESULTS = {
+    "RETURN_REFUND_FULL_BANK": {
+        "status": "success",
+        "action": "return_initiated",
+        "return_label_url": "https://returns.example.com/label/{order_id}",
+        "refund_method": "original_payment_method",
+        "estimated_refund_days": 3,
+        "message": "Return initiated. Full refund to your original payment method within 3-5 business days of receiving the item.",
+    },
+    "RETURN_REFUND_PARTIAL_BANK": {
+        "status": "success",
+        "action": "return_initiated",
+        "return_label_url": "https://returns.example.com/label/{order_id}",
+        "refund_method": "original_payment_method",
+        "refund_type": "partial",
+        "estimated_refund_days": 3,
+        "message": "Return initiated. Partial refund to your original payment method within 3-5 business days of receiving the item.",
+    },
+    "RETURN_REFUND_GIFT_CARD": {
+        "status": "success",
+        "action": "return_initiated",
+        "return_label_url": "https://returns.example.com/label/{order_id}",
+        "refund_method": "gift_card",
+        "estimated_refund_days": 1,
+        "message": "Return initiated. Refund issued as store credit/gift card within 1-2 business days of receiving the item.",
+    },
+    "DENY_REFUND": {
+        "status": "denied",
+        "action": "return_denied",
+        "message": "Return request denied. The item does not meet the return eligibility criteria per current policy.",
+    },
+    "ESCALATE_HUMAN_AGENT": {
+        "status": "escalated",
+        "action": "escalated_to_specialist",
+        "ticket_id": "ESC-{order_id}",
+        "message": "Case escalated to a specialist. Customer will be contacted within 24-48 hours.",
+    },
+    "REPLACEMENT_EXCHANGE": {
+        "status": "success",
+        "action": "exchange_initiated",
+        "return_label_url": "https://returns.example.com/label/{order_id}",
+        "message": "Exchange initiated. Return the original item using the label provided. Replacement ships within 1-2 business days.",
+    },
+    "USER_ABORT": {
+        "status": "cancelled",
+        "action": "request_cancelled",
+        "message": "Return request cancelled at customer request.",
+    },
+}
 
 
 def format_tools_for_prompt() -> str:

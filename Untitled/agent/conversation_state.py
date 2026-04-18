@@ -111,12 +111,38 @@ class ConversationState:
         self.agent_summary: Optional[str] = None
         self.agent_persona_type: Optional[str] = None
 
+        # Facts the customer has disclosed turn-by-turn
+        self.revealed_facts: List[str] = []
+
+        # Set to True after the first process_return verification attempt
+        # so subsequent calls skip verification and execute directly.
+        self.verification_attempted: bool = False
+
     # ----- append helpers -----
 
+    def _last_speaker(self) -> Optional[str]:
+        """Return the role of the last agent/customer message, ignoring tool entries."""
+        for turn in reversed(self.history):
+            if turn.turn in ("agent", "customer"):
+                return turn.turn
+        return None
+
     def append_customer_message(self, message: str) -> None:
+        if self._last_speaker() == "customer":
+            print(
+                f"  [ConversationState] Skipping consecutive customer message "
+                f"(no agent turn between): {message[:80]!r}"
+            )
+            return
         self.history.append(ConversationTurn(turn="customer", message=message))
 
     def append_agent_message(self, message: str) -> None:
+        if self._last_speaker() == "agent":
+            print(
+                f"  [ConversationState] Skipping consecutive agent message "
+                f"(no customer turn between): {message[:80]!r}"
+            )
+            return
         self.history.append(ConversationTurn(turn="agent", message=message))
 
     def append_tool_call(
@@ -124,11 +150,15 @@ class ConversationState:
         tool_call: ToolCallRecord,
         caller: str = "agent",
     ) -> bool:
-        """Append a tool call. Returns False (and skips) if it is a duplicate."""
+        """Append a tool call. Returns False (and skips) if it is a duplicate.
+
+        When a duplicate is detected, a synthetic ALREADY_CALLED tool_result is
+        appended to history so the LLM knows not to repeat the call.
+        """
         sig = _tool_call_signature(tool_call.tool_name, tool_call.arguments)
         seen = self._seen_agent_sigs if caller == "agent" else self._seen_customer_sigs
         if sig in seen:
-            return False
+            return False  # Silently skip; orchestrator handles duplicate detection
 
         seen.add(sig)
         self.history.append(

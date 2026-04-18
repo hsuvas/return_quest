@@ -24,11 +24,9 @@ from pydantic import BaseModel
 # ---------------------------------------------------------------------------
 
 _SHOWCASE_DIR = Path(__file__).resolve().parent
-_AGENT_DIR = str(_SHOWCASE_DIR / "agent")
 
-for _d in (_AGENT_DIR, str(_SHOWCASE_DIR)):
-    if _d not in sys.path:
-        sys.path.insert(0, _d)
+if str(_SHOWCASE_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHOWCASE_DIR))
 
 from showcase_backend import (  # noqa: E402
     run_agent_turn,
@@ -120,8 +118,7 @@ def _run_turn(session_id: str) -> TurnResponse:
             conv_state, scenario, provider, agent_persona,
         )
     except Exception as exc:
-        import traceback
-        raise HTTPException(status_code=500, detail=f"Agent error: {exc}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Agent error: {exc}")
 
     return TurnResponse(
         agent_message=message,
@@ -200,13 +197,16 @@ def get_hint(session_id: str):
     if session_id not in _sessions:
         raise HTTPException(status_code=404, detail="Session not found.")
     sess = _sessions[session_id]
-    hint_provider = make_provider(model=HINT_MODEL, temperature=0.7, max_tokens=200)
+    # Reuse the session's model so the hint call uses the same credentials/model
+    hint_provider = make_provider(
+        model=sess["provider"].model, temperature=0.3, max_tokens=80
+    )
     try:
         hint = suggest_next_message(
             sess["conv_state"], sess["scenario"], hint_provider
         )
-    except Exception as exc:
-        hint = f"(Hint error: {exc})"
+    except Exception as e:
+        hint = f"Answer the agent's last question using your scenario details. (debug: {e})"
     return {"hint": hint}
 
 
