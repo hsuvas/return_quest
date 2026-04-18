@@ -374,7 +374,6 @@ def run_multitype_conversations(
                 max_tokens=llm_provider.max_tokens,
                 top_p=llm_provider.top_p,
                 fallback_model=llm_provider.fallback_model,
-                academic_ai_client=llm_provider.academic_ai_client,
             )
 
             agent = LLMAgent(
