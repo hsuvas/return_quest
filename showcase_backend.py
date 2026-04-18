@@ -573,30 +573,41 @@ def run_agent_turn(
     env = Environment(scenario=scenario, llm_provider=provider)
     valid_tools = get_tool_names(get_agent_tools())
 
-    agent_resp = agent.generate_response(state=state)
-
     tool_results: List[Dict[str, Any]] = []
+    agent_resp = None
 
-    # Execute tool calls
-    if agent_resp.tool_calls:
-        for tc in agent_resp.tool_calls:
-            if not validate_tool_call(tc, valid_tools):
-                continue
-            was_new = state.append_tool_call(tc, caller="agent")
-            if was_new:
-                tr = env.execute_tool(tc)
-                state.append_tool_result(tr)
-                tool_results.append({
-                    "tool_name": tc.tool_name,
-                    "arguments": tc.arguments,
-                    "result": tr.result,
-                })
+    # Multi-round inner loop: execute tools, then call agent again so its
+    # customer-visible message is written AFTER seeing tool results.
+    _MAX_TOOL_ROUNDS = 5
+    for _round in range(_MAX_TOOL_ROUNDS):
+        agent_resp = agent.generate_response(state=state)
+
+        executed_new = False
+        if agent_resp.tool_calls:
+            for tc in agent_resp.tool_calls:
+                if not validate_tool_call(tc, valid_tools):
+                    continue
+                was_new = state.append_tool_call(tc, caller="agent")
+                if was_new:
+                    tr = env.execute_tool(tc)
+                    state.append_tool_result(tr)
+                    tool_results.append({
+                        "tool_name": tc.tool_name,
+                        "arguments": tc.arguments,
+                        "result": tr.result,
+                    })
+                    executed_new = True
+
+        if executed_new:
+            # Loop back: agent will now see tool results and write a real reply
+            continue
+        break  # No new tools executed — agent_resp.message is the final reply
 
     # Append agent message — always use fallback if LLM produced nothing
     message = agent_resp.message or "I'm looking into your request. Could you give me a moment?"
     state.append_agent_message(message)
 
-    # Update state metadata
+    # Update state metadata from the final agent response
     if agent_resp.facts:
         state.agent_facts = agent_resp.facts
     if agent_resp.reasoning_summary:

@@ -5,7 +5,7 @@ Streamlit demo for human-vs-LLM customer service conversations.
 Target audience: ages 10–18, pixel-art game aesthetic.
 
 Run from project root:
-    streamlit run src/showcase_lnr/app.py
+     streamlit run app.py
 """
 
 import os
@@ -1915,7 +1915,7 @@ elif st.session_state.step == 5:
                             timeout=35,
                         )
                         if resp.status_code == 200:
-                            st.session_state.hint_text = resp.json().get("hint", "(No hint available)")
+                            st.session_state.hint_text = resp.json().get("hint") or "(No hint available)"
                         else:
                             st.session_state.hint_text = "(Hint unavailable)"
                     except Exception as e:
