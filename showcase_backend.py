@@ -668,24 +668,46 @@ def suggest_next_message(
     scenario: Dict[str, Any],
     provider: LLMProvider,
 ) -> str:
-    """Return a short nudge (not a full message) to guide the player's next move."""
-    history = "\n".join(
-        f"{'Customer' if m['role'] == 'user' else 'Agent'}: {m['content']}"
-        for m in state.messages[-6:]  # last 3 exchanges
+    """Return a one-sentence hint telling the player exactly what information to provide next."""
+    history_parts = []
+    for turn in state.history[-8:]:
+        if turn.turn == "agent" and turn.message:
+            history_parts.append(f"Agent: {turn.message}")
+        elif turn.turn == "customer" and turn.message:
+            history_parts.append(f"Customer: {turn.message}")
+    history = "\n".join(history_parts)
+
+    task = scenario.get("task", {})
+    items = task.get("items", [])
+    product_names = ", ".join(i.get("product_name", "") for i in items) or "N/A"
+    return_reasons = task.get("return_reasons", {})
+    reasons_text = "; ".join(f"{k}: {v}" for k, v in return_reasons.items()) or "N/A"
+    task_summary = (
+        f"Order ID: {task.get('order_id', 'N/A')}\n"
+        f"Purchase date: {task.get('purchase_date', task.get('order_date', 'N/A'))}\n"
+        f"Delivery date: {task.get('delivery_date', 'N/A')}\n"
+        f"Product(s): {product_names}\n"
+        f"Return reason(s): {reasons_text}\n"
+        f"Task description: {task.get('task', task.get('detail', ''))}"
     )
+
     prompt = (
-        "You are a helpful coach watching a customer-service role-play. "
-        "Based on the conversation so far, give the player a one-sentence nudge "
-        "about WHAT to say next — not the actual words. "
-        "Be concise and friendly (max 20 words). Do not write the message for them.\n\n"
-        f"Conversation (recent):\n{history}\n\nNudge:"
+        "You are a helper in a customer-service role-play game. "
+        "The player is acting as the customer. "
+        "The agent just asked a question. Using the player's actual scenario details, "
+        "write ONE short sentence (max 25 words) that tells the player exactly what information "
+        "to include in their reply — e.g. the specific value, date, or fact they should mention. "
+        "Be direct and concrete. Do not be vague.\n\n"
+        f"Player's scenario details:\n{task_summary}\n\n"
+        f"Recent conversation:\n{history}\n\n"
+        "Hint (one sentence):"
     )
     messages = [{"role": "user", "content": prompt}]
     try:
-        resp = provider.call_text_only(messages=messages, temperature=0.7, max_tokens=60)
-        return (resp.content or "").strip().lstrip("Nudge:").strip()
+        resp = provider.call_text_only(messages=messages, temperature=0.5, max_tokens=60)
+        return (resp.content or "").strip().lstrip("Hint:").strip()
     except Exception:
-        return "Try asking about your options or pushing back on the offer."
+        return "Check your scenario details and answer what the agent just asked."
 
 
 # ---------------------------------------------------------------------------

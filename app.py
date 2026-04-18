@@ -1048,7 +1048,7 @@ def next_step():
     go_to(st.session_state.step + 1)
 
 
-_LOG_PATH = _SRC_DIR.parent / "data_collect" / "showcase_log.jsonl"
+_LOG_PATH = _SHOWCASE_DIR / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
 
 
@@ -1181,7 +1181,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Step 5: hints panel lives here
+    # Step 5: character info panel
     if st.session_state.step == 5 and not st.session_state.finished:
         persona = st.session_state.persona
         turn = st.session_state.turn_count
@@ -1195,31 +1195,6 @@ with st.sidebar:
         st.markdown(f'<div class="px-bar">{bar}</div>', unsafe_allow_html=True)
         st.caption(f"{t('turn')}: {turn} / 10")
 
-        st.markdown("---")
-
-        if st.button(f"💡 {t('get_hint')}", key="hint_btn_sidebar", use_container_width=True):
-            with st.spinner(t("hint_generating")):
-                try:
-                    resp = httpx.get(
-                        f"{_API_BASE}/api/session/{st.session_state.api_session_id}/hint",
-                        timeout=35,
-                    )
-                    if resp.status_code == 200:
-                        st.session_state.hint_text = resp.json().get("hint", "(No hint available)")
-                    else:
-                        st.session_state.hint_text = "(Hint unavailable)"
-                except Exception as e:
-                    st.session_state.hint_text = f"(Error: {e})"
-            st.rerun()
-
-        if st.session_state.hint_text:
-            st.info(st.session_state.hint_text)
-            if st.button(f"↓ {t('use_hint')}", key="use_hint_sidebar", use_container_width=True):
-                st.session_state.hint_used_this_turn = True
-                st.session_state["_prefill_msg"] = st.session_state.hint_text
-                st.session_state["input_counter"] += 1
-                st.session_state.hint_text = None
-                st.rerun()
         st.markdown("---")
 
     if st.button(f"🔄 {t('restart')}", use_container_width=True, key="restart_btn"):
@@ -1601,6 +1576,12 @@ elif st.session_state.step == 3:
         "gpt-4o-mini",
         "gpt-4-turbo",
     ]
+    MODEL_SUMMARIES = {
+        "gpt-4.1-2025-04-14": "GPT-4.1 (default) — OpenAI's latest flagship model. Very capable, follows instructions precisely, and handles complex multi-turn conversations well.",
+        "gpt-4o": "GPT-4o — Fast and capable multimodal model from OpenAI. Great balance of speed and reasoning for most conversations.",
+        "gpt-4o-mini": "GPT-4o Mini — Lightweight and quick. Lower cost; good for simple cases but may miss policy nuances.",
+        "gpt-4-turbo": "GPT-4 Turbo — Previous-generation flagship. Strong reasoning, slightly slower than GPT-4o.",
+    }
     col_m, col_custom = st.columns([2, 2])
     with col_m:
         model_sel = st.selectbox(
@@ -1619,6 +1600,10 @@ elif st.session_state.step == 3:
             )
         else:
             st.session_state.model_choice = model_sel
+
+    summary = MODEL_SUMMARIES.get(st.session_state.model_choice)
+    if summary:
+        st.caption(f"ℹ️ {summary}")
 
     st.markdown("---")
     col_back, col_next = st.columns(2)
@@ -1671,6 +1656,20 @@ elif st.session_state.step == 4:
             kid = st.session_state.get("kid_mode", False)
             st.session_state.narrative = generate_narrative(scenario, provider, kid_mode=kid)
             st.session_state.starters = generate_starters(scenario, provider, kid_mode=kid)
+
+    # Persona card at top of mission page
+    if st.session_state.persona:
+        p = st.session_state.persona
+        persona_desc = p.get("Person description", "")
+        col_pimg, col_pinfo = st.columns([1, 3])
+        with col_pimg:
+            st.markdown(persona_img_html(p, height=110), unsafe_allow_html=True)
+        with col_pinfo:
+            st.markdown(f"**{p['Name']}** · {p.get('Age-range', '')} · {p.get('Location', '')}")
+            st.markdown(f"*{p.get('Job Sector', '')}*")
+            if persona_desc:
+                st.markdown(persona_desc)
+        st.markdown("---")
 
     st.markdown(
         f'<div class="px-narrative">'
@@ -1794,6 +1793,28 @@ elif st.session_state.step == 5:
 
     st.divider()
 
+    # Task facts panel — always accessible during chat
+    scenario = st.session_state.scenario
+    task = scenario.get("task", {})
+    items = task.get("items", [])
+    return_reasons = task.get("return_reasons", {})
+    with st.expander("📋 Your case facts", expanded=False):
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            st.markdown(f"**Order ID:** {task.get('order_id', '—')}")
+            st.markdown(f"**Purchase date:** {task.get('purchase_date', task.get('order_date', '—'))}")
+            st.markdown(f"**Delivery date:** {task.get('delivery_date', '—')}")
+        with col_f2:
+            for item in items:
+                pname = item.get("product_name", "—")
+                reason = return_reasons.get(pname, "—")
+                st.markdown(f"**{pname}**")
+                st.markdown(f"Return reason: *{reason}*")
+        task_desc = task.get("task", task.get("detail", ""))
+        if task_desc:
+            st.markdown("---")
+            st.markdown(f"**Scenario:** {task_desc}")
+
     # (Agent turn is triggered by the send button below — not auto-run on rerender)
 
     # Render conversation
@@ -1882,6 +1903,39 @@ elif st.session_state.step == 5:
 
         if st.session_state.turn_count >= 9:
             st.warning(t("turn_limit_warning"))
+
+        # Hint button — below chatbox
+        col_hint, col_hint_spacer = st.columns([2, 3])
+        with col_hint:
+            if st.button(f"💡 {t('get_hint')}", key="hint_btn_chat", use_container_width=True):
+                with st.spinner(t("hint_generating")):
+                    try:
+                        resp = httpx.get(
+                            f"{_API_BASE}/api/session/{st.session_state.api_session_id}/hint",
+                            timeout=35,
+                        )
+                        if resp.status_code == 200:
+                            st.session_state.hint_text = resp.json().get("hint", "(No hint available)")
+                        else:
+                            st.session_state.hint_text = "(Hint unavailable)"
+                    except Exception as e:
+                        st.session_state.hint_text = f"(Hint error: {e})"
+                st.rerun()
+
+        if st.session_state.hint_text:
+            st.info(f"💡 {st.session_state.hint_text}")
+            col_use, col_dismiss = st.columns([2, 2])
+            with col_use:
+                if st.button(f"↓ {t('use_hint')}", key="use_hint_chat", use_container_width=True):
+                    st.session_state.hint_used_this_turn = True
+                    st.session_state["_prefill_msg"] = st.session_state.hint_text
+                    st.session_state["input_counter"] += 1
+                    st.session_state.hint_text = None
+                    st.rerun()
+            with col_dismiss:
+                if st.button("✕ Dismiss", key="dismiss_hint_chat", use_container_width=True):
+                    st.session_state.hint_text = None
+                    st.rerun()
 
 
 # ===========================================================================
@@ -2053,8 +2107,9 @@ elif st.session_state.step == 6:
             st.markdown(f"**{t('next_steps')}:** {resolution.customer_next_steps}")
 
         with st.expander(f"📜 {t('full_transcript')}"):
+            _transcript_info = AGENT_INFO.get(st.session_state.get("agent_persona_choice", "FAIR"), {})
             for msg in st.session_state.messages:
-                role_label = f"**{persona['Name']}**" if msg["role"] == "customer" else f"**{info['label']} Agent**"
+                role_label = f"**{persona['Name']}**" if msg["role"] == "customer" else f"**{_transcript_info.get('label', 'Support')} Agent**"
                 st.markdown(f"{role_label}: {msg['text']}")
                 if msg.get("tools"):
                     for tool in msg["tools"]:
