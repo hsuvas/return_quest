@@ -747,11 +747,7 @@ def suggest_next_message(
     scenario: Dict[str, Any],
     provider: LLMProvider,
 ) -> str:
-    """Return a one-sentence hint telling the player exactly what to say next.
-
-    Rule-based: never calls LLM, so it never fails or returns empty.
-    Skips hints for information the customer already shared in the conversation.
-    """
+    """Return a ≤30-word hint telling the player what to say next, using LLM."""
     last_agent_message = ""
     for turn in reversed(state.history):
         if turn.turn == "agent" and turn.message:
@@ -769,73 +765,31 @@ def suggest_next_message(
         reasons_text = "; ".join(f"{k}: {v}" for k, v in return_reasons.items())
     else:
         reasons_text = str(return_reasons)
-    purchase_date = task.get("purchase_date", task.get("order_date", ""))
-    delivery_date = task.get("delivery_date", "")
-    persona = scenario.get("persona", {})
 
-    # Build a combined view of everything the customer has said so far
-    customer_said = " ".join(
-        (t.message or "").lower()
-        for t in state.history
-        if t.turn == "customer"
+    task_description = task.get("scenario_description") or task.get("description") or (
+        f"Return {product_names}"
+        + (f" (order {order_id})" if order_id else "")
+        + (f" — reason: {reasons_text}" if reasons_text else "")
     )
 
-    if not last_agent_message:
-        return (
-            f"Tell the agent you want to return {product_names}"
-            + (f" (order {order_id})" if order_id else "")
-            + (f" because: {reasons_text[:60]}" if reasons_text else "")
-            + "."
-        )
-
-    msg_lower = last_agent_message.lower()
-
-    # Only hint order number if customer hasn't already given it
-    order_id_given = order_id and order_id.lower() in customer_said
-    if not order_id_given and any(kw in msg_lower for kw in ["order number", "order id", "order #", "your order", "order details"]):
-        if order_id:
-            return f"Tell the agent your order number is {order_id}."
-
-    # Only hint condition/reason if customer hasn't described the problem yet
-    reason_given = reasons_text and any(w in customer_said for w in reasons_text.lower().split()[:3] if len(w) > 4)
-    if not reason_given and any(kw in msg_lower for kw in ["condition", "damage", "defect", "issue with", "problem with", "wrong", "broken", "missing", "fault", "what seems"]):
-        if reasons_text:
-            return f"Explain the problem: {reasons_text[:80]}."
-
-    # Only hint purchase date if not already shared
-    date_given = purchase_date and purchase_date.lower() in customer_said
-    if not date_given and any(kw in msg_lower for kw in ["purchase date", "when did you buy", "when was it purchased", "when you ordered", "date of purchase"]):
-        if purchase_date:
-            return f"Tell the agent the purchase date was {purchase_date}."
-
-    # Only hint delivery date if not already shared
-    delivery_given = delivery_date and delivery_date.lower() in customer_said
-    if not delivery_given and any(kw in msg_lower for kw in ["delivered", "delivery date", "when did it arrive", "when was it delivered", "received it", "arrival"]):
-        if delivery_date:
-            return f"Tell the agent it was delivered on {delivery_date}."
-
-    if any(kw in msg_lower for kw in ["proceed", "go ahead", "confirm", "sound good", "would you like", "shall i", "can i go ahead", "does that work"]):
-        return "Say 'Yes, please proceed' to confirm the resolution the agent proposed."
-
-    if any(kw in msg_lower for kw in ["name", "account", "email", "identify yourself", "your name"]):
-        name = persona.get("Name", "")
-        if name and name.lower() not in customer_said:
-            return f"Give the agent your name: {name}."
-
-    if any(kw in msg_lower for kw in ["refund method", "gift card", "original payment", "bank account", "store credit"]):
-        return "Tell the agent your preferred refund method (bank account or gift card)."
-
-    # Extract the last question from the agent's message as a fallback
     sentences = last_agent_message.replace("?", "?\n").split("\n")
     last_question = next((s.strip() for s in reversed(sentences) if "?" in s and s.strip()), "")
-    if last_question:
-        return f'Answer: "{last_question[:100]}"'
+    agent_prompt_text = last_question or last_agent_message[:200]
 
-    return (
-        f"Respond to the agent about returning {product_names}"
-        + (f" (order {order_id})" if order_id else "")
-        + "."
-    )
+    messages = [
+        {"role": "system", "content": "You are a hint generator for a customer support negotiation game. Output only the hint, no preamble."},
+        {"role": "user", "content": (
+            f"Task: {task_description}\n\n"
+            f"Agent just asked: {agent_prompt_text}\n\n"
+            "Write a hint (≤30 words) telling the player exactly what to say next "
+            "to advance their return request. Be specific, use details from the task."
+        )},
+    ]
+    resp = provider.call_text_only(messages=messages)
+    hint = (resp.content or "").strip()
+    if not hint:
+        return f"Answer the agent's question using your task details: {task_description[:80]}."
+    return hint
 
 
 # ---------------------------------------------------------------------------
