@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 
 import litellm
 
-from academic_ai_client import AcademicAIClient
 from huggingface_client import HuggingFaceClient
 
 
@@ -67,52 +66,6 @@ class LLMResponse:
             usage=usage,
         )
 
-    @classmethod
-    def from_academic_ai(cls, response: Dict[str, Any]) -> "LLMResponse":
-        """Build from an Academic AI JSON response.
-
-        Expected shape::
-
-            {"data": {"content": "...", "usage": {"totalTokens": N, ...}}}
-
-        The response may also include tool_calls when the underlying model
-        supports function calling.
-        """
-        data = response.get("data", {})
-        if not isinstance(data, dict):
-            data = {}
-
-        content = data.get("content")
-
-        # Parse tool calls if present
-        tool_calls = None
-        raw_tc = data.get("tool_calls")
-        if raw_tc and isinstance(raw_tc, list):
-            tool_calls = []
-            for tc in raw_tc:
-                func = tc.get("function", {})
-                args = func.get("arguments", "{}")
-                if isinstance(args, str):
-                    args = json.loads(args)
-                tool_calls.append({
-                    "tool_name": func.get("name", ""),
-                    "tool_call_id": tc.get("id", ""),
-                    "arguments": args,
-                })
-
-        raw_usage = data.get("usage", {})
-        usage = {
-            "input_tokens": raw_usage.get("promptTokens", raw_usage.get("prompt_tokens", 0)),
-            "output_tokens": raw_usage.get("completionTokens", raw_usage.get("completion_tokens", 0)),
-        }
-
-        return cls(
-            content=content,
-            tool_calls=tool_calls,
-            finish_reason=data.get("finish_reason", "stop") or "stop",
-            usage=usage,
-        )
-
 
 # ---------------------------------------------------------------------------
 # Provider wrapper
@@ -130,7 +83,6 @@ class LLMProvider:
         fallback_model: Optional[str] = None,
         max_retries: int = 3,
         initial_retry_delay: float = 1.0,
-        academic_ai_client: Optional[AcademicAIClient] = None,
         huggingface_client: Optional[HuggingFaceClient] = None,
     ):
         self.model = model
@@ -140,7 +92,6 @@ class LLMProvider:
         self.fallback_model = fallback_model
         self.max_retries = max_retries
         self.initial_retry_delay = initial_retry_delay
-        self.academic_ai_client = academic_ai_client
         self.huggingface_client = huggingface_client
         # LiteLLM handles provider routing (openai, huggingface, etc.)
 
@@ -195,24 +146,7 @@ class LLMProvider:
         """Try Academic AI first (if configured), then fall back to OpenAI."""
         last_err: Optional[Exception] = None
 
-        # --- Academic AI (primary when configured) ---
-        if self.academic_ai_client is not None:
-            delay = self.initial_retry_delay
-            for attempt in range(self.max_retries + 1):
-                try:
-                    result = self._call_academic_ai(kwargs)
-                    self._record_usage(result.usage)
-                    return result
-                except Exception as e:
-                    last_err = e
-                    if attempt < self.max_retries:
-                        jitter = random.uniform(0, delay * 0.5)
-                        time.sleep(delay + jitter)
-                        delay *= 2
-            print(f"[AcademicAI] All {self.max_retries + 1} attempts failed, "
-                  f"falling back to OpenAI. Last error: {last_err}")
-
-        # --- LiteLLM (fallback, or sole provider) ---
+        # --- LiteLLM (primary provider) ---
         delay = self.initial_retry_delay
         for attempt in range(self.max_retries + 1):
             try:
@@ -258,36 +192,6 @@ class LLMProvider:
         raise RuntimeError(
             f"LLM call failed after all attempts. Last error: {last_err}"
         )
-
-    def _call_academic_ai(self, kwargs: Dict[str, Any]) -> LLMResponse:
-        """Single Academic AI call. Translates kwargs to the Academic AI API.
-
-        The Academic AI endpoint only accepts ``user`` and ``assistant`` roles
-        (no ``system``), and does not support ``max_tokens`` or ``top_p``.
-        """
-        api_kwargs: Dict[str, Any] = {}
-        if "temperature" in kwargs:
-            api_kwargs["temperature"] = kwargs["temperature"]
-        # NOTE: max_tokens and top_p are NOT supported by Academic AI API
-        if "tools" in kwargs:
-            api_kwargs["tools"] = kwargs["tools"]
-        if "tool_choice" in kwargs:
-            api_kwargs["tool_choice"] = kwargs["tool_choice"]
-
-        # Convert system messages → user messages (API only accepts user/assistant)
-        messages = []
-        for msg in kwargs["messages"]:
-            if msg.get("role") == "system":
-                messages.append({"role": "user", "content": msg["content"]})
-            else:
-                messages.append(msg)
-
-        raw = self.academic_ai_client.create_chat_completion(
-            model=kwargs["model"],
-            messages=messages,
-            **api_kwargs,
-        )
-        return LLMResponse.from_academic_ai(raw)
 
     def _call_huggingface(self, kwargs: Dict[str, Any]) -> LLMResponse:
         """Single HuggingFace Inference API call.
