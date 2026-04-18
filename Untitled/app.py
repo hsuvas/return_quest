@@ -88,6 +88,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+_APP_VERSION = "v2026-04-18-B"  # version marker — remove after confirming deploy
+
 # ===========================================================================
 # PIXEL ART SPRITE SYSTEM
 # ===========================================================================
@@ -1159,6 +1161,7 @@ with st.sidebar:
     col_title, col_lang = st.columns([3, 1])
     with col_title:
         st.markdown(f'<div class="px-heading">{t("title")}</div>', unsafe_allow_html=True)
+        st.caption(_APP_VERSION)
     with col_lang:
         if st.button(t("lang_toggle"), key="lang_btn", help="Switch language"):
             st.session_state.lang = "de" if st.session_state.lang == "en" else "en"
