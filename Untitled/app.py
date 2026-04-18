@@ -1724,7 +1724,11 @@ elif st.session_state.step == 4:
                         resp.raise_for_status()
                         data = resp.json()
                     except Exception as e:
-                        st.error(f"Could not start conversation: {e}")
+                        try:
+                            detail = e.response.json().get("detail", e.response.text)
+                        except Exception:
+                            detail = str(e)
+                        st.error(f"Could not start conversation: {detail}")
                         st.stop()
 
                 st.session_state.api_session_id = data["session_id"]
