@@ -14,6 +14,63 @@ from typing import Any, Dict, List, Optional
 
 from .conversation_state import Resolution, ToolCallRecord
 
+
+_COMPOUND_QUESTION_RE = re.compile(
+    r'^(.*?(?:let me know|tell me|share(?: with me)?|provide|confirm|clarify))\s+(.+?)(?:,\s*.+)+\?$',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _reduce_compound_question(question: str) -> str:
+    """If question_to_customer lists multiple items (comma-joined), keep only the first sub-ask."""
+    if not question or question.count(",") < 2:
+        return question
+    m = _COMPOUND_QUESTION_RE.match(question.strip())
+    if m:
+        prefix = m.group(1).strip()
+        first_item = m.group(3).strip()
+        return f"{prefix} {first_item}?"
+    return question
+
+
+def _strip_all_questions(text: str) -> str:
+    """Remove every sentence that contains a '?' from text, then clean up orphaned list markers.
+
+    Used to clean the message body when question_to_customer is present,
+    ensuring the body carries zero questions.
+    """
+    if not text or "?" not in text:
+        return text
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    result = [p for p in parts if "?" not in p]
+    joined = " ".join(result).strip()
+    # Remove orphaned numbered list markers left after question stripping (e.g. "2. 3.")
+    joined = re.sub(r'\b\d+\.\s*', ' ', joined)
+    joined = re.sub(r'\s{2,}', ' ', joined).strip()
+    return joined
+
+
+def _enforce_single_question(text: str) -> str:
+    """Fallback: remove all question sentences after the first one.
+
+    Used only on the plain-text parse path (no question_to_customer field).
+    Splits on sentence-ending punctuation, keeps every non-question sentence
+    plus the very first sentence that contains '?', and discards the rest.
+    """
+    if not text or text.count("?") <= 1:
+        return text
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    result: List[str] = []
+    question_seen = False
+    for part in parts:
+        if "?" in part:
+            if not question_seen:
+                result.append(part)
+                question_seen = True
+        else:
+            result.append(part)
+    return " ".join(result).strip()
+
 # ---------------------------------------------------------------------------
 # JSON extraction regexes (mirrors src/dataset/output_collect patterns)
 # ---------------------------------------------------------------------------
@@ -136,7 +193,7 @@ def parse_agent_response(llm_response: Any) -> AgentResponse:
                 persona = parsed.agent_persona_type
             except Exception:
                 # Content wasn't valid JSON — use as plain message
-                message = llm_response.content.strip() or None
+                message = _enforce_single_question(llm_response.content.strip()) or None
 
         return AgentResponse(
             message=message,
@@ -166,7 +223,22 @@ def _parse_agent_json_body(data: Dict[str, Any]) -> AgentResponse:
         msg = (item or {}).get("message", "")
         if msg:
             messages.append(msg)
-    combined_message = "\n".join(messages) if messages else None
+
+    # Extract the single question from the dedicated field
+    question = (data.get("question_to_customer") or "").strip()
+    if question and not question.endswith("?"):
+        question += "?"
+    question = _reduce_compound_question(question)
+
+    body = "\n".join(messages) if messages else ""
+
+    if question:
+        # Strip any stray questions from the message body — question lives only in question_to_customer
+        body = _strip_all_questions(body)
+        combined_message = (body.rstrip() + "\n\n" + question).strip() if body else question
+    else:
+        # Fallback: no question_to_customer — apply sentence-level stripping
+        combined_message = _enforce_single_question(body) if body else None
 
     # Tool calls from tool_calls_made
     tool_calls: Optional[List[ToolCallRecord]] = None

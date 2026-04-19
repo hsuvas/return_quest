@@ -306,16 +306,22 @@ _TASK_SYS_PROMPT = (
 
 _TASK_PROMPT_TEMPLATE = """\
 ## INSTRUCTION
-Generate exactly 1 high-complexity order return task that:
-- Uses the provided product set as the purchased items
-- Exploits the provided policy ambiguities (do NOT resolve them)
-- Requires multi-turn clarification between customer and agent
-- Has at least 2 plausible resolution outcomes
+Generate exactly 1 high-complexity Amazon order return scenario for a customer support negotiation game.
+- Use the provided product set as the purchased items
+- Exploit the provided policy ambiguities (do NOT resolve them)
+- Require multi-turn clarification between customer and agent
+- Have at least 2 plausible resolution outcomes
+
+**CRITICAL: The return_details narrative MUST reflect the customer's actual return reasons as stated below.
+Each return reason must genuinely occur in the scenario — do not contradict or negate these reasons.**
+
+## RETURN REASONS (must be factually present in return_details)
+{return_reasons_text}
 
 ## POLICY
 {policy_text}
 
-## POLICY AMBIGUITIES (exploit these)
+## POLICY AMBIGUITIES (exploit these — for internal complexity only, do NOT mention policy by name in return_details)
 {ambiguities_json}
 
 ## PRODUCT SET
@@ -327,9 +333,24 @@ Order date: {order_date}
 Delivery date: {delivery_date}
 
 ## OUTPUT FORMAT
-Return a single JSON object (not an array) with these fields:
-- "detail": Long paragraph describing the order context, timeline, item conditions, and ambiguous situation. Do NOT reference "task_1_products" or internal names.
-- "related_policy_issues": List of 3-5 specific policy tensions this task exploits (short phrases).
+Return a single JSON object (not an array) with exactly these four fields:
+
+- "return_details": A 2nd-person narrative (3–5 sentences) addressed to the customer.
+  Write as: "You ordered...", "When the package arrived...", "You noticed...".
+  Describe what was ordered, when it arrived, the actual condition of the goods, what happened, and the return reason with full context.
+  The return reason(s) listed above MUST be evident as real occurrences.
+  Do NOT include the order ID (added separately). Do NOT reference policy rules or policy names.
+
+- "customer_behavior": A JSON object with exactly these sub-fields:
+  - "things_to_hide": List of strings — facts the customer will NOT volunteer unless the agent asks directly
+    (e.g. "item was already opened before noticing the defect", "original tag was removed after first use").
+  - "things_to_reveal_if_asked": List of strings — facts disclosed only when the agent probes specifically
+    (e.g. "the outer packaging showed minor dents on arrival", "return window expires in 3 days").
+  - "negotiation_style": One of "assertive" | "cooperative" | "evasive" | "emotional"
+  - "expected_outcome": String — what the customer ideally wants (e.g. "full refund to original payment method").
+
+- "related_policy_issues": List of 3–5 short phrases naming specific policy tensions this scenario exploits (internal use only, not shown to player).
+
 - "complexity_level": One of "Medium Complexity" | "High Complexity" | "Very High Complexity"
 
 Output ONLY the JSON object, no markdown fences.
@@ -360,6 +381,7 @@ def generate_task_detail(
     selected_items: List[Dict[str, Any]],
     persona: Dict[str, Any],
     provider: LLMProvider,
+    return_reasons: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Call the LLM to create a complex task from selected products + random ambiguities.
 
@@ -379,6 +401,12 @@ def generate_task_detail(
         for p in selected_items
     ]
 
+    reasons = return_reasons or []
+    return_reasons_text = "; ".join(
+        f"{item.get('product_name', 'item')}: {reason}"
+        for item, reason in zip(selected_items, reasons)
+    ) or "Not specified"
+
     prompt = _TASK_PROMPT_TEMPLATE.format(
         policy_text=AMAZON_RETURN_POLICY_TEXT[:3000],  # trim to keep tokens manageable
         ambiguities_json=json.dumps(ambiguities, ensure_ascii=False, indent=2),
@@ -386,6 +414,7 @@ def generate_task_detail(
         customer_name=persona.get("Name", "the customer"),
         order_date=order_date,
         delivery_date=delivery_date,
+        return_reasons_text=return_reasons_text,
     )
 
     messages = [
@@ -393,8 +422,15 @@ def generate_task_detail(
         {"role": "user", "content": prompt},
     ]
 
+    _DEFAULT_CUSTOMER_BEHAVIOR = {
+        "things_to_hide": [],
+        "things_to_reveal_if_asked": [],
+        "negotiation_style": "cooperative",
+        "expected_outcome": "full refund or exchange",
+    }
+
     try:
-        resp = provider.call_text_only(messages=messages, temperature=0.9, max_tokens=900)
+        resp = provider.call_text_only(messages=messages, temperature=0.9, max_tokens=1400)
         text = (resp.content or "{}").strip()
         # Strip markdown fences if present
         if text.startswith("```"):
@@ -403,15 +439,32 @@ def generate_task_detail(
             if text.endswith("```"):
                 text = text[:-3].strip()
         parsed = json.loads(text)
+        # LLM may still emit "detail" from old pattern — alias it
+        if "return_details" not in parsed:
+            parsed["return_details"] = parsed.pop("detail", "")
+        # customer_behavior may arrive as a JSON string
+        cb = parsed.get("customer_behavior")
+        if isinstance(cb, str):
+            try:
+                parsed["customer_behavior"] = json.loads(cb)
+            except Exception:
+                parsed["customer_behavior"] = _DEFAULT_CUSTOMER_BEHAVIOR
+        elif not isinstance(cb, dict):
+            parsed["customer_behavior"] = _DEFAULT_CUSTOMER_BEHAVIOR
+        parsed.setdefault("related_policy_issues", [])
+        parsed.setdefault("complexity_level", "High Complexity")
         parsed["order_date"] = order_date
         parsed["delivery_date"] = delivery_date
         parsed["ambiguities_used"] = ambiguities
         return parsed
     except Exception as e:
         return {
-            "detail": "",
+            "return_details": "",
+            "customer_behavior": _DEFAULT_CUSTOMER_BEHAVIOR,
             "related_policy_issues": [],
             "complexity_level": "High Complexity",
+            "order_date": order_date,
+            "delivery_date": delivery_date,
             "error": str(e),
         }
 
@@ -448,11 +501,6 @@ def build_scenario(
         if task_detail else derive_policy_issues(selected_items, return_reasons)
     )
 
-    task_description = (task_detail or {}).get("detail") or (
-        f"Customer {persona.get('Name', 'Customer')} wants to return: {items_text}. "
-        f"Return reasons: {reason_text}. Order ID: {order_id}."
-    )
-
     purchase_date = (task_detail or {}).get("order_date", "")
     delivery_date = (task_detail or {}).get("delivery_date", "")
 
@@ -465,6 +513,44 @@ def build_scenario(
         for item in selected_items
     )
     seller_note = "Third-party seller (Fulfilled by Amazon)" if has_third_party else "Sold and fulfilled by Amazon"
+
+    # --- Three-part scenario structure ---
+
+    # 1. Basic info: shared facts accessible to both sides
+    basic_info = {
+        "order_id": order_id,
+        "order_date": purchase_date,
+        "delivery_date": delivery_date,
+        "products": [
+            {"product_name": item["product_name"], "price": item.get("selling_price", "N/A")}
+            for item in selected_items
+        ],
+        "seller": seller_note,
+    }
+
+    # 2. Return details: customer's story (agent learns gradually through conversation)
+    return_details = (task_detail or {}).get("return_details") or (
+        f"You purchased {items_text}. Your return reason(s): {reason_text}."
+    )
+
+    # 3. Customer behavior: simulator instructions only, never shown in UI
+    _default_behavior = {
+        "things_to_hide": [],
+        "things_to_reveal_if_asked": [],
+        "negotiation_style": "cooperative",
+        "expected_outcome": "full refund or exchange",
+    }
+    customer_behavior = (task_detail or {}).get("customer_behavior") or _default_behavior
+
+    # Combined ground truth for verify_return: basic facts + return narrative
+    combined_detail = (
+        f"Order ID: {order_id}\n"
+        f"Order date: {purchase_date}\n"
+        f"Delivery date: {delivery_date}\n"
+        f"Items: {items_text}\n"
+        f"Seller: {seller_note}\n\n"
+        f"{return_details}"
+    )
 
     # Short agent-visible case brief: order facts only, NO conditions or return reasons.
     # This is what the new prompt_builder injects as {detail_agent}.
@@ -490,20 +576,27 @@ def build_scenario(
         # Short agent-visible brief (no conditions or return reasons)
         "detail_agent": detail_agent,
         "task": {
+            # --- Backward-compat flat fields (many consumers read these directly) ---
             "order_id": order_id,
-            "order_date": purchase_date,          # matches _ORDER_FACT_KEYS
+            "order_date": purchase_date,
+            "purchase_date": purchase_date,
             "delivery_date": delivery_date,
-            "products_involved": products_involved,  # matches _ORDER_FACT_KEYS
-            "items": selected_items,              # full product dicts for environment
+            "products_involved": products_involved,
+            "items": selected_items,
             "return_reasons": dict(zip(
                 [item["product_name"] for item in selected_items],
                 return_reasons,
             )),
-            "task": task_description,
-            "detail": task_description,
+            # --- Three-part structure ---
+            "basic_info": basic_info,
+            "return_details": return_details,
+            "customer_behavior": customer_behavior,
+            # --- Ground truth for verify_return (basic facts + return narrative) ---
+            "detail": combined_detail,
+            "task": combined_detail,
+            # --- Internal-only ---
             "related_policy_issues": policy_issues,
             "complexity_level": (task_detail or {}).get("complexity_level", "High Complexity"),
-            "purchase_date": purchase_date,
         },
         "first_customer_message": first_message,
     }
@@ -828,18 +921,10 @@ def generate_narrative(
         '</span>'
     )
 
-    detail = task.get("detail", "")
+    return_details = task.get("return_details", "")
     complexity = task.get("complexity_level", "")
-    policy_issues = task.get("related_policy_issues", [])
 
-    if detail:
-        issues_html = ""
-        if policy_issues:
-            bullets = "".join(f"<li>{issue}</li>" for issue in policy_issues)
-            issues_html = (
-                f'<div style="margin-top:10px;font-size:0.82rem;color:#546e7a;">'
-                f'<strong>Policy tensions in play:</strong><ul style="margin:4px 0 0 16px;">{bullets}</ul></div>'
-            )
+    if return_details:
         complexity_html = ""
         if complexity:
             complexity_html = (
@@ -848,9 +933,8 @@ def generate_narrative(
             )
         return (
             f"<strong>You are {name}{age_loc}.</strong><br><br>"
-            f"{detail}"
+            f"{return_details}"
             + complexity_html
-            + issues_html
             + mission_cta
         )
 

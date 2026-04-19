@@ -87,6 +87,7 @@ class TurnResponse(BaseModel):
     hint: Optional[str]
     tool_calls_count: int
     reasoning: Optional[str]
+    verification_result: Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +121,18 @@ def _run_turn(session_id: str) -> TurnResponse:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Agent error: {exc}")
 
+    # Extract latest verification result from history if present
+    verification_result = None
+    for turn in reversed(conv_state.history):
+        if (
+            turn.turn == "tool_result"
+            and turn.tool_result is not None
+            and turn.tool_result.tool_name == "process_return"
+            and turn.tool_result.result.get("status") == "verification_required"
+        ):
+            verification_result = turn.tool_result.result
+            break
+
     return TurnResponse(
         agent_message=message,
         tool_calls=tool_results,
@@ -128,6 +141,7 @@ def _run_turn(session_id: str) -> TurnResponse:
         hint=None,
         tool_calls_count=len(conv_state.tool_interactions),
         reasoning=getattr(agent_resp, "reasoning_summary", None),
+        verification_result=verification_result,
     )
 
 

@@ -940,6 +940,7 @@ def init_state():
         "hint_text": None,
         "hint_used_this_turn": False,
         "turn_hint_flags": [],
+        "verification_result": None,
         "input_counter": 0,
         "_prefill_msg": "",
     }
@@ -1624,6 +1625,7 @@ elif st.session_state.step == 3:
                     selected_items=st.session_state.selected_items,
                     persona=st.session_state.persona,
                     provider=task_provider,
+                    return_reasons=en_reasons,
                 )
             scenario = build_scenario(
                 persona=st.session_state.persona,
@@ -1673,7 +1675,7 @@ elif st.session_state.step == 4:
     st.markdown(
         f'<div class="px-narrative">'
         f'<div class="px-narrative-title">📜 YOUR MISSION</div>'
-        f'<p><strong>You have started the return request in the app, now want to follow up with the agent.</strong></p>'
+        f'<p><strong>You have submitted your return request form. You are now contacting the Customer Service Agent to discuss and resolve your return.</strong></p>'
         f'{st.session_state.narrative}'
         f'</div>',
         unsafe_allow_html=True,
@@ -1751,6 +1753,8 @@ elif st.session_state.step == 4:
                 st.session_state.accepted_resolution = False
                 st.session_state.turn_hint_flags = []
                 st.session_state.hint_used_this_turn = False
+                if data.get("verification_result"):
+                    st.session_state.verification_result = data["verification_result"]
                 next_step()
         else:
             st.info(t("write_msg_first"))
@@ -1796,24 +1800,25 @@ elif st.session_state.step == 5:
     # Task facts panel — always accessible during chat
     scenario = st.session_state.scenario
     task = scenario.get("task", {})
-    items = task.get("items", [])
-    return_reasons = task.get("return_reasons", {})
+    basic_info = task.get("basic_info", {})
+    return_details = task.get("return_details", "")
     with st.expander("📋 Your case facts", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            st.markdown(f"**Order ID:** {task.get('order_id', '—')}")
-            st.markdown(f"**Purchase date:** {task.get('purchase_date', task.get('order_date', '—'))}")
-            st.markdown(f"**Delivery date:** {task.get('delivery_date', '—')}")
+            st.markdown(f"**Order ID:** {basic_info.get('order_id', task.get('order_id', '—'))}")
+            st.markdown(f"**Purchase date:** {basic_info.get('order_date', task.get('purchase_date', task.get('order_date', '—')))}")
+            st.markdown(f"**Delivery date:** {basic_info.get('delivery_date', task.get('delivery_date', '—'))}")
         with col_f2:
-            for item in items:
-                pname = item.get("product_name", "—")
-                reason = return_reasons.get(pname, "—")
-                st.markdown(f"**{pname}**")
-                st.markdown(f"Return reason: *{reason}*")
-        task_desc = task.get("task", task.get("detail", ""))
-        if task_desc:
+            products = basic_info.get("products", [])
+            if products:
+                for prod in products:
+                    st.markdown(f"**{prod.get('product_name', '—')}**")
+            else:
+                for item in task.get("items", []):
+                    st.markdown(f"**{item.get('product_name', '—')}**")
+        if return_details:
             st.markdown("---")
-            st.markdown(f"**Scenario:** {task_desc}")
+            st.markdown(f"**Your case:** {return_details}")
 
     # (Agent turn is triggered by the send button below — not auto-run on rerender)
 
@@ -1898,6 +1903,8 @@ elif st.session_state.step == 5:
             st.session_state.finished = data.get("finished", False)
             if data.get("resolution"):
                 st.session_state.resolution = data["resolution"]
+            if data.get("verification_result"):
+                st.session_state.verification_result = data["verification_result"]
             st.session_state["input_counter"] += 1
             st.rerun()
 
@@ -2025,11 +2032,25 @@ elif st.session_state.step == 6:
         with col_s2:
             st.metric(t("tool_calls"), st.session_state.tool_calls_count)
         with col_s3:
-            st.metric(t("policy_tensions"), len(st.session_state.scenario["task"]["related_policy_issues"]))
+            st.metric("Difficulty", st.session_state.scenario["task"].get("complexity_level", "—"))
 
-        with st.expander("📜 Policy Tensions"):
-            for issue in st.session_state.scenario["task"].get("related_policy_issues", []):
-                st.markdown(f"- {issue}")
+        vr = st.session_state.get("verification_result")
+        if vr:
+            discrepancies = vr.get("discrepancies", [])
+            hints = vr.get("verification_hints", [])
+            verified = vr.get("verified", True)
+            label = "✅ Claims Consistent" if verified else "⚠️ Inconsistencies Detected"
+            with st.expander(f"🔍 Consistency Report — {label}"):
+                if discrepancies:
+                    st.markdown("**Discrepancies found:**")
+                    for d in discrepancies:
+                        st.markdown(f"- {d}")
+                if hints:
+                    st.markdown("**Clarification hints:**")
+                    for h in hints:
+                        st.markdown(f"- {h}")
+                if not discrepancies and not hints:
+                    st.markdown("No discrepancies were detected between customer claims and scenario facts.")
 
         st.markdown("---")
         col_a, col_c = st.columns(2)
@@ -2105,6 +2126,24 @@ elif st.session_state.step == 6:
         st.markdown(resolution.resolution_description)
         if resolution.customer_next_steps:
             st.markdown(f"**{t('next_steps')}:** {resolution.customer_next_steps}")
+
+        vr = st.session_state.get("verification_result")
+        if vr:
+            discrepancies = vr.get("discrepancies", [])
+            hints = vr.get("verification_hints", [])
+            verified = vr.get("verified", True)
+            label = "✅ Claims Consistent" if verified else "⚠️ Inconsistencies Detected"
+            with st.expander(f"🔍 Consistency Report — {label}"):
+                if discrepancies:
+                    st.markdown("**Discrepancies found:**")
+                    for d in discrepancies:
+                        st.markdown(f"- {d}")
+                if hints:
+                    st.markdown("**Clarification hints:**")
+                    for h in hints:
+                        st.markdown(f"- {h}")
+                if not discrepancies and not hints:
+                    st.markdown("No discrepancies were detected between customer claims and scenario facts.")
 
         with st.expander(f"📜 {t('full_transcript')}"):
             _transcript_info = AGENT_INFO.get(st.session_state.get("agent_persona_choice", "FAIR"), {})

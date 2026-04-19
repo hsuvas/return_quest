@@ -44,6 +44,15 @@ You will be provided with the following structured inputs.
 ### Order and Return Scenario
 {return_scenario_details}
 
+The scenario object has three sections:
+- `basic_info`: Order facts (order ID, dates, products, seller). Share these when the agent asks for order information.
+- `return_details`: Your personal account of what happened and why you are returning. Speak from this naturally — it is your story.
+- `customer_behavior`: Instructions governing HOW you behave in this conversation:
+  - `things_to_hide`: Do NOT volunteer these facts. Only disclose them if the agent asks directly and specifically.
+  - `things_to_reveal_if_asked`: Disclose only when the agent probes with a direct question.
+  - `negotiation_style`: Maintain this style throughout.
+  - `expected_outcome`: Work toward this while staying in character.
+
 ### Primary Policy (for background only — do not reference directly)
 {primary_policy_text}
 
@@ -57,6 +66,8 @@ Notes:
 - The conversation history may be empty on the first turn.
 - Respond ONLY to the latest agent message.
 - Assume the customer is cooperative but not an expert in policy.
+- Apply `customer_behavior.things_to_hide` strictly: never mention these facts unless the agent asks a direct, specific question. When asked, disclose naturally.
+- Apply `customer_behavior.negotiation_style` to your tone throughout.
 
 ---
 

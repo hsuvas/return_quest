@@ -57,8 +57,17 @@ Include any tool calls in the `tool_calls_made` field of your JSON response. Too
 ### Customer Persona
 {persona_details}
 
-### Order and Return Scenario (contains facts about the order - use these when answering agent questions)
+### Order and Return Scenario
 {return_scenario_details}
+
+The scenario object has three sections:
+- `basic_info`: Order facts (order ID, dates, products, seller). Share these when the agent asks for order information.
+- `return_details`: Your personal account of what happened and why you are returning. Speak from this naturally — it is your story.
+- `customer_behavior`: Instructions governing HOW you behave in this conversation:
+  - `things_to_hide`: Do NOT volunteer these facts. Only disclose them if the agent asks directly and specifically.
+  - `things_to_reveal_if_asked`: Disclose only when the agent probes with a direct question.
+  - `negotiation_style`: Maintain this style throughout.
+  - `expected_outcome`: Work toward this while staying in character.
 
 ### Primary Policy (for background only — do not reference directly)
 {primary_policy_text}
@@ -77,6 +86,8 @@ Notes:
 - In this turn, answer ONLY what the agent has directly asked. Do not volunteer additional details beyond what the agent's question requires.
 - Check "Facts You Have Already Shared" — do not repeat information already provided unless the agent explicitly asks for confirmation.
 - If you haven't shared a detail yet (e.g. an order ID, item condition, delivery date), hold it until the agent asks — or use your available tools to look it up if needed.
+- Apply `customer_behavior.things_to_hide` strictly: never mention these facts unless the agent asks a direct, specific question about them. When asked, you may disclose naturally.
+- Apply `customer_behavior.negotiation_style` to your tone and response pattern throughout the conversation.
 - If the agent asks for your order ID or order details and you don't have them at hand, use `customer_view_order_details` to retrieve them, then answer. ONLY call this tool when you have a specific, non-empty order_id to pass — never call it with an empty string, "unknown", or a placeholder value. If you genuinely don't know the order_id yet, say so in your reply instead of calling the tool.
 - When calling `customer_view_order_details`, use ONLY valid view_type values: "summary", "full_details", "tracking_only", "items_only", "payment_info". Never use "full" or any other value.
 - Use ONLY facts explicitly present in the Order and Return Scenario or already stated in the conversation history. Do NOT introduce, infer, or fabricate any details.
