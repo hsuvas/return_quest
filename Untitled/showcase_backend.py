@@ -306,22 +306,59 @@ _TASK_SYS_PROMPT = (
 
 _TASK_PROMPT_TEMPLATE = """\
 ## INSTRUCTION
+
 Generate exactly 1 high-complexity Amazon order return scenario for a customer support negotiation game.
 - Use the provided product set as the purchased items
-- Exploit the provided policy ambiguities (do NOT resolve them)
+- Exploit the provided policy ambiguities — do NOT resolve them
 - Require multi-turn clarification between customer and agent
-- Have at least 2 plausible resolution outcomes
+- Have at least 2 and at most 6 plausible resolution outcomes
+
+**CRITICAL: The return reason(s) listed below MUST genuinely occur in the scenario. Do not contradict or negate them.**
+
+## RETURN REASONS (must be factually present)
+{return_reasons_text}
+
+---
+
+## GROUNDING IN ACTUAL RETURN PROCESSES
+
+Scenarios MUST reflect how Amazon's return process actually works. Key distinctions:
+
+1. Missing items vs returns: A missing item is a delivery issue (reshipment or partial refund), not a return. Create ambiguity around edge cases such as a customer who wants to return an incomplete order rather than wait for reshipment.
+
+2. Partial delivery: If not all items were delivered, create genuine uncertainty about whether the customer can return what they did receive, whether the return window starts from original delivery or order completion, and how a partial refund interacts with return eligibility.
+
+3. Replacement vs exchange: Replacement means getting the SAME item again (for defective or damaged goods). Exchange means getting a DIFFERENT item (different color, size, model). Make this distinction clear and create scenarios that test it.
+
+4. Original or unused condition edge cases: Create scenarios where the condition is genuinely ambiguous — for example, packaging opened to verify contents but product untouched, electronics with intact seals but functionality tested briefly, or clothing tried on but not worn outside.
+
+5. Bundle vs separate items: A bundle is a product sold as a set. Items purchased together in the same order are separate products. These have different return implications and create different ambiguities.
+
+6. Heavy or bulky items: When relevant, consider that large items may be excluded from free return shipping or standard drop-off options.
+
+7. Third-party seller timing: When items are from third-party sellers, create tension between the seller's verification timeline and customer urgency (upcoming event, financial pressure, expiring window).
+
+---
+
+## TASK DESIGN REQUIREMENTS
+
+The scenario must:
+- Require several clarifying questions from the agent before a resolution is possible
+- Have at least one item-level difference in condition or eligibility if multiple products are involved
+- Include timeline details that create genuine uncertainty (ordered date, delivered date, when issue was discovered, how much of the return window remains)
+- Leave at least one key fact ambiguous — something the agent must ask about to resolve
+- Be internally consistent and realistic — no contrived or nonsensical situations
+- Exploit at least 3 of the provided policy ambiguities in a way that meaningfully affects possible outcomes
 
 **CRITICAL: The return_details narrative MUST reflect the customer's actual return reasons as stated below.
 Each return reason must genuinely occur in the scenario — do not contradict or negate these reasons.**
 
-## RETURN REASONS (must be factually present in return_details)
-{return_reasons_text}
+---
 
 ## POLICY
 {policy_text}
 
-## POLICY AMBIGUITIES (exploit these — for internal complexity only, do NOT mention policy by name in return_details)
+## POLICY AMBIGUITIES (exploit these — do NOT mention policy by name in any narrative field)
 {ambiguities_json}
 
 ## PRODUCT SET
@@ -332,32 +369,41 @@ Customer name: {customer_name}
 Order date: {order_date}
 Delivery date: {delivery_date}
 Pre-assigned order IDs: {order_ids_text}
-Note: If the scenario depicts all items in one shipment, use only the first order ID. If items were ordered or shipped separately, assign each a distinct order ID from the list above. Reference these IDs naturally in the return_details narrative.
+If all items were shipped together, use only the first order ID. If items were ordered or shipped separately, assign each a distinct order ID from the list above.
+
+---
 
 ## OUTPUT FORMAT
-Return a single JSON object (not an array) with exactly these four fields:
 
-- "return_details": A 2nd-person narrative (3–5 sentences) addressed to the customer.
+Return a single JSON object (not an array) with exactly these fields:
+
+- "detail": A long internal case description (6–10 sentences) written from the perspective of an internal case file.
+  Include: items purchased and their quantities, full order timeline (ordered, delivered, issue discovered, current date relative to return window), delivery status, item-level conditions with specifics (sealed, opened, used, damaged), any prior communication with the seller, customer circumstances that create urgency or complicate resolution, and the specific facts that leave the correct outcome genuinely unclear.
+  Write as an internal briefing — not a customer message and not addressed to the customer.
+  Do NOT reference product set names. Do NOT resolve the ambiguities. Include enough detail that an agent must ask questions.
+
+- "return_details": A 2nd-person narrative (4–6 sentences) addressed to the customer.
   Write as: "You ordered...", "When the package arrived...", "You noticed...".
-  Describe what was ordered, when it arrived, the actual condition of the goods, what happened, and the return reason with full context.
+  Describe what was ordered, when it arrived, the condition of each item, what happened, and the return reason with full context including any timeline pressure.
   The return reason(s) listed above MUST be evident as real occurrences.
-  Do NOT include the order ID (added separately). Do NOT reference policy rules or policy names.
+  Do NOT include order IDs (added separately). Do NOT reference policy rules or policy names.
 
 - "customer_behavior": A JSON object with exactly these sub-fields:
-  - "things_to_hide": List of strings — facts the customer will NOT volunteer unless the agent asks directly
-    (e.g. "item was already opened before noticing the defect", "original tag was removed after first use").
-  - "things_to_reveal_if_asked": List of strings — facts disclosed only when the agent probes specifically
-    (e.g. "the outer packaging showed minor dents on arrival", "return window expires in 3 days").
+  - "things_to_hide": List of strings — facts the customer will NOT volunteer unless the agent asks directly.
+  - "things_to_reveal_if_asked": List of strings — facts disclosed only when the agent probes with a specific question.
   - "negotiation_style": One of "assertive" | "cooperative" | "evasive" | "emotional"
-  - "expected_outcome": String — what the customer ideally wants (e.g. "full refund to original payment method").
+  - "expected_outcome": String — what the customer ideally wants.
 
-- "related_policy_issues": List of 3–5 short phrases naming specific policy tensions this scenario exploits (internal use only, not shown to player).
+- "related_policy_issues": List of 3–5 short phrases naming the specific policy tensions this scenario exploits. Each phrase must be directly relevant to the scenario details, not generic.
 
-- "customer_agent_info": A 1–2 sentence summary of only what the customer openly presents as their issue. No hidden details, no policy tensions, nothing from things_to_hide. This is the surface-level intent the customer would state upfront to the agent. Example: "Customer wants to return a security camera that is incompatible with their Wi-Fi and is asking about return timing for the separately delivered extension cord."
+- "customer_agent_info": A 1–2 sentence summary of only what the customer openly presents as their issue. No hidden details, no policy tensions, nothing from things_to_hide. This is the surface-level statement the customer would make upfront. Example: "Customer wants to return a security camera that is incompatible with their Wi-Fi and is asking about return timing for the separately delivered extension cord."
 
 - "complexity_level": One of "Medium Complexity" | "High Complexity" | "Very High Complexity"
+  Medium: 1–2 ambiguities, a few clarifying questions.
+  High: 2–3 ambiguities, several clarifying questions, possibly multiple items with different statuses.
+  Very High: 3+ ambiguities, conflicting details, multiple stakeholders, time pressure, extensive clarification required.
 
-Output ONLY the JSON object, no markdown fences.
+Output ONLY the JSON object, no markdown fences, no commentary.
 """
 
 
@@ -394,7 +440,7 @@ def generate_task_detail(
     Falls back gracefully on any error.
     """
     import datetime
-    ambiguities = _load_ambiguities(n=4)
+    ambiguities = _load_ambiguities(n=5)
 
     # Synthesise plausible order/delivery dates
     today = datetime.date.today()
@@ -440,7 +486,7 @@ def generate_task_detail(
     }
 
     try:
-        resp = provider.call_text_only(messages=messages, temperature=0.9, max_tokens=1400)
+        resp = provider.call_text_only(messages=messages, temperature=0.9, max_tokens=2500)
         text = (resp.content or "{}").strip()
         # Strip markdown fences if present
         if text.startswith("```"):
@@ -464,6 +510,7 @@ def generate_task_detail(
         parsed.setdefault("related_policy_issues", [])
         parsed.setdefault("complexity_level", "High Complexity")
         parsed.setdefault("customer_agent_info", "")
+        parsed.setdefault("detail", "")
         parsed["order_date"] = order_date
         parsed["delivery_date"] = delivery_date
         parsed["ambiguities_used"] = ambiguities
@@ -564,15 +611,25 @@ def build_scenario(
 
     order_ids_str = ", ".join(_ids) if len(_ids) > 1 else order_id
 
-    # Combined ground truth for verify_return: basic facts + return narrative
-    combined_detail = (
-        f"Order ID(s): {order_ids_str}\n"
-        f"Order date: {purchase_date}\n"
-        f"Delivery date: {delivery_date}\n"
-        f"Items: {items_text}\n"
-        f"Seller: {seller_note}\n\n"
-        f"{return_details}"
-    )
+    # Combined ground truth for verify_return: prefer LLM-generated detail, fall back to programmatic
+    _llm_detail = (task_detail or {}).get("detail", "").strip()
+    if _llm_detail:
+        combined_detail = (
+            f"Order ID(s): {order_ids_str}\n"
+            f"Order date: {purchase_date}\n"
+            f"Delivery date: {delivery_date}\n"
+            f"Seller: {seller_note}\n\n"
+            f"{_llm_detail}"
+        )
+    else:
+        combined_detail = (
+            f"Order ID(s): {order_ids_str}\n"
+            f"Order date: {purchase_date}\n"
+            f"Delivery date: {delivery_date}\n"
+            f"Items: {items_text}\n"
+            f"Seller: {seller_note}\n\n"
+            f"{return_details}"
+        )
 
     # Short agent-visible case brief: order facts only, NO conditions or return reasons.
     # This is what the new prompt_builder injects as {detail_agent}.
