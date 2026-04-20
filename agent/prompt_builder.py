@@ -295,6 +295,7 @@ def _build_customer_user_prompt(
         "basic_info": task.get("basic_info", {}),
         "return_details": task.get("return_details", ""),
         "customer_behavior": task.get("customer_behavior", {}),
+        "customer_agent_info": task.get("customer_agent_info", ""),
     }
     latest = _latest_agent_message(state.history) or "(none yet)"
     revealed_text = _safe_json(state.revealed_facts) if state.revealed_facts else "[]"
@@ -325,6 +326,7 @@ def _build_single_customer_user_prompt(
         "basic_info": task.get("basic_info", {}),
         "return_details": task.get("return_details", ""),
         "customer_behavior": task.get("customer_behavior", {}),
+        "customer_agent_info": task.get("customer_agent_info", ""),
     }
     latest = _latest_agent_message(state.history) or "(none yet)"
     revealed_text = _safe_json(state.revealed_facts) if state.revealed_facts else "[]"

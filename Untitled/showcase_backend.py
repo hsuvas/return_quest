@@ -331,6 +331,8 @@ Each return reason must genuinely occur in the scenario — do not contradict or
 Customer name: {customer_name}
 Order date: {order_date}
 Delivery date: {delivery_date}
+Pre-assigned order IDs: {order_ids_text}
+Note: If the scenario depicts all items in one shipment, use only the first order ID. If items were ordered or shipped separately, assign each a distinct order ID from the list above. Reference these IDs naturally in the return_details narrative.
 
 ## OUTPUT FORMAT
 Return a single JSON object (not an array) with exactly these four fields:
@@ -350,6 +352,8 @@ Return a single JSON object (not an array) with exactly these four fields:
   - "expected_outcome": String — what the customer ideally wants (e.g. "full refund to original payment method").
 
 - "related_policy_issues": List of 3–5 short phrases naming specific policy tensions this scenario exploits (internal use only, not shown to player).
+
+- "customer_agent_info": A 1–2 sentence summary of only what the customer openly presents as their issue. No hidden details, no policy tensions, nothing from things_to_hide. This is the surface-level intent the customer would state upfront to the agent. Example: "Customer wants to return a security camera that is incompatible with their Wi-Fi and is asking about return timing for the separately delivered extension cord."
 
 - "complexity_level": One of "Medium Complexity" | "High Complexity" | "Very High Complexity"
 
@@ -382,6 +386,7 @@ def generate_task_detail(
     persona: Dict[str, Any],
     provider: LLMProvider,
     return_reasons: Optional[List[str]] = None,
+    order_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Call the LLM to create a complex task from selected products + random ambiguities.
 
@@ -407,6 +412,10 @@ def generate_task_detail(
         for item, reason in zip(selected_items, reasons)
     ) or "Not specified"
 
+    if not order_ids:
+        order_ids = [f"AMZ-{random.randint(1000000, 9999999)}" for _ in selected_items]
+    order_ids_text = ", ".join(order_ids)
+
     prompt = _TASK_PROMPT_TEMPLATE.format(
         policy_text=AMAZON_RETURN_POLICY_TEXT[:3000],  # trim to keep tokens manageable
         ambiguities_json=json.dumps(ambiguities, ensure_ascii=False, indent=2),
@@ -415,6 +424,7 @@ def generate_task_detail(
         order_date=order_date,
         delivery_date=delivery_date,
         return_reasons_text=return_reasons_text,
+        order_ids_text=order_ids_text,
     )
 
     messages = [
@@ -453,9 +463,11 @@ def generate_task_detail(
             parsed["customer_behavior"] = _DEFAULT_CUSTOMER_BEHAVIOR
         parsed.setdefault("related_policy_issues", [])
         parsed.setdefault("complexity_level", "High Complexity")
+        parsed.setdefault("customer_agent_info", "")
         parsed["order_date"] = order_date
         parsed["delivery_date"] = delivery_date
         parsed["ambiguities_used"] = ambiguities
+        parsed["order_ids"] = order_ids
         return parsed
     except Exception as e:
         return {
@@ -463,6 +475,8 @@ def generate_task_detail(
             "customer_behavior": _DEFAULT_CUSTOMER_BEHAVIOR,
             "related_policy_issues": [],
             "complexity_level": "High Complexity",
+            "customer_agent_info": "",
+            "order_ids": order_ids,
             "order_date": order_date,
             "delivery_date": delivery_date,
             "error": str(e),
@@ -479,13 +493,18 @@ def build_scenario(
     return_reasons: List[str],
     first_message: Optional[str] = None,
     task_detail: Optional[Dict[str, Any]] = None,
+    order_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Build a synthetic agent-compatible scenario dict.
 
     If task_detail (from generate_task_detail) is provided, its richer
     description and policy issues are merged into the task field.
     """
-    order_id = f"AMZ-{random.randint(1000000, 9999999)}"
+    # Use pre-generated IDs (from generate_task_detail) or create new ones
+    _ids = order_ids or (task_detail or {}).get("order_ids") or [
+        f"AMZ-{random.randint(1000000, 9999999)}" for _ in selected_items
+    ]
+    order_id = _ids[0]  # primary (backward compat)
 
     items_text = ", ".join(
         f"{item['product_name']} ({item.get('selling_price', 'N/A')})"
@@ -518,7 +537,8 @@ def build_scenario(
 
     # 1. Basic info: shared facts accessible to both sides
     basic_info = {
-        "order_id": order_id,
+        "order_id": order_id,          # primary ID (backward compat)
+        "order_ids": _ids,             # all order IDs (one per item for separate shipments)
         "order_date": purchase_date,
         "delivery_date": delivery_date,
         "products": [
@@ -542,9 +562,11 @@ def build_scenario(
     }
     customer_behavior = (task_detail or {}).get("customer_behavior") or _default_behavior
 
+    order_ids_str = ", ".join(_ids) if len(_ids) > 1 else order_id
+
     # Combined ground truth for verify_return: basic facts + return narrative
     combined_detail = (
-        f"Order ID: {order_id}\n"
+        f"Order ID(s): {order_ids_str}\n"
         f"Order date: {purchase_date}\n"
         f"Delivery date: {delivery_date}\n"
         f"Items: {items_text}\n"
@@ -555,7 +577,7 @@ def build_scenario(
     # Short agent-visible case brief: order facts only, NO conditions or return reasons.
     # This is what the new prompt_builder injects as {detail_agent}.
     detail_agent = (
-        f"Order ID: {order_id}\n"
+        f"Order ID(s): {order_ids_str}\n"
         f"Items: {', '.join(products_involved)}\n"
         + (f"Order date: {purchase_date}\n" if purchase_date else "")
         + (f"Delivery date: {delivery_date}\n" if delivery_date else "")
@@ -594,6 +616,8 @@ def build_scenario(
             # --- Ground truth for verify_return (basic facts + return narrative) ---
             "detail": combined_detail,
             "task": combined_detail,
+            # --- Customer LLM only: brief of openly presented intent ---
+            "customer_agent_info": (task_detail or {}).get("customer_agent_info", ""),
             # --- Internal-only ---
             "related_policy_issues": policy_issues,
             "complexity_level": (task_detail or {}).get("complexity_level", "High Complexity"),
@@ -972,13 +996,13 @@ def generate_starters(
     reason = list(reasons.values())[0] if reasons else "an issue"
     name = persona.get("Name", "Customer")
     return [
-        f"Hi, I need help returning my order {order_id}.",
+        f"Hi, I need help returning something I recently purchased — the {item_name}.",
         (
-            f"Hello, I'm {name}. My order {order_id} had a problem — "
-            f"the {item_name} was {reason.lower()}. Can you help?"
+            f"Hello, I'm {name}. I'd like to start a return — "
+            f"the {item_name} {reason.lower()}. Can you help me with this?"
         ),
         (
-            f"Good day. I would like to initiate a return for {item_name} "
-            f"(order {order_id}). The item was {reason.lower()}."
+            f"Good day. I'm reaching out about a return. "
+            f"I recently bought the {item_name} and I'm having an issue with it."
         ),
     ]

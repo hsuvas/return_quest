@@ -1475,7 +1475,7 @@ elif st.session_state.step == 2:
             )
             if checked and not is_checked:
                 st.session_state.selected_items.append(product)
-                st.session_state.return_reasons.append(RETURN_REASONS_LIST[0])
+                st.session_state.return_reasons.append(RETURN_REASONS_LIST[-1])  # default: "Other"
                 st.rerun()
             elif not checked and is_checked:
                 item_idx = next(
@@ -1490,7 +1490,7 @@ elif st.session_state.step == 2:
                 item_idx = next(
                     (i for i, x in enumerate(st.session_state.selected_items) if x["product_name"] == pname), 0
                 )
-                cur_reason = st.session_state.return_reasons[item_idx] if item_idx < len(st.session_state.return_reasons) else RETURN_REASONS_LIST[0]
+                cur_reason = st.session_state.return_reasons[item_idx] if item_idx < len(st.session_state.return_reasons) else RETURN_REASONS_LIST[-1]
                 new_reason = st.selectbox(
                     t("return_reason"),
                     RETURN_REASONS_LIST,
@@ -1618,6 +1618,9 @@ elif st.session_state.step == 3:
                 "model": st.session_state.model_choice,
             })
             en_reasons = [reason_to_en(r) for r in st.session_state.return_reasons]
+            # Pre-generate one order ID per item so multi-item scenarios can have separate IDs
+            import random as _random
+            scenario_order_ids = [f"AMZ-{_random.randint(1000000, 9999999)}" for _ in st.session_state.selected_items]
             # Generate LLM task (complex scenario with ambiguities)
             with st.spinner("🧩 Generating your mission..."):
                 task_provider = make_provider(model=st.session_state.model_choice, temperature=0.9, max_tokens=900)
@@ -1626,12 +1629,14 @@ elif st.session_state.step == 3:
                     persona=st.session_state.persona,
                     provider=task_provider,
                     return_reasons=en_reasons,
+                    order_ids=scenario_order_ids,
                 )
             scenario = build_scenario(
                 persona=st.session_state.persona,
                 selected_items=st.session_state.selected_items,
                 return_reasons=en_reasons,
                 task_detail=task_detail,
+                order_ids=scenario_order_ids,
             )
             st.session_state.scenario = scenario
             # Clear narrative so Step 4 regenerates
@@ -1680,6 +1685,36 @@ elif st.session_state.step == 4:
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    task = scenario.get("task", {})
+    customer_agent_info = task.get("customer_agent_info", "")
+    if customer_agent_info:
+        st.info(f"**Your stated issue:** {customer_agent_info}")
+
+    with st.expander("📋 Full scenario details"):
+        st.markdown(task.get("detail", "*(not available)*"))
+
+    basic_info_s4 = task.get("basic_info", {})
+    return_details_s4 = task.get("return_details", "")
+    with st.expander("📋 Your case facts"):
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            order_ids_s4 = basic_info_s4.get("order_ids") or [basic_info_s4.get("order_id", task.get("order_id", "—"))]
+            for oid in order_ids_s4:
+                st.markdown(f"**Order ID:** {oid}")
+            st.markdown(f"**Purchase date:** {basic_info_s4.get('order_date', task.get('purchase_date', '—'))}")
+            st.markdown(f"**Delivery date:** {basic_info_s4.get('delivery_date', task.get('delivery_date', '—'))}")
+        with col_f2:
+            products_s4 = basic_info_s4.get("products", [])
+            if products_s4:
+                for prod in products_s4:
+                    st.markdown(f"**{prod.get('product_name', '—')}**")
+            else:
+                for item in task.get("items", []):
+                    st.markdown(f"**{item.get('product_name', '—')}**")
+        if return_details_s4:
+            st.markdown("---")
+            st.markdown(f"**Your case:** {return_details_s4}")
 
     st.markdown(f"**{t('how_to_start')}**")
 
@@ -1805,7 +1840,9 @@ elif st.session_state.step == 5:
     with st.expander("📋 Your case facts", expanded=False):
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            st.markdown(f"**Order ID:** {basic_info.get('order_id', task.get('order_id', '—'))}")
+            order_ids_list = basic_info.get("order_ids") or [basic_info.get("order_id", task.get("order_id", "—"))]
+            for oid in order_ids_list:
+                st.markdown(f"**Order ID:** {oid}")
             st.markdown(f"**Purchase date:** {basic_info.get('order_date', task.get('purchase_date', task.get('order_date', '—')))}")
             st.markdown(f"**Delivery date:** {basic_info.get('delivery_date', task.get('delivery_date', '—'))}")
         with col_f2:

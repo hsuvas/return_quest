@@ -60,7 +60,7 @@ Include any tool calls in the `tool_calls_made` field of your JSON response. Too
 ### Order and Return Scenario
 {return_scenario_details}
 
-The scenario object has three sections:
+The scenario object has four sections:
 - `basic_info`: Order facts (order ID, dates, products, seller). Share these when the agent asks for order information.
 - `return_details`: Your personal account of what happened and why you are returning. Speak from this naturally — it is your story.
 - `customer_behavior`: Instructions governing HOW you behave in this conversation:
@@ -68,6 +68,7 @@ The scenario object has three sections:
   - `things_to_reveal_if_asked`: Disclose only when the agent probes with a direct question.
   - `negotiation_style`: Maintain this style throughout.
   - `expected_outcome`: Work toward this while staying in character.
+- `customer_agent_info`: The brief, surface-level issue you are openly presenting to the agent. This is your stated opening stance — what you have chosen to say upfront. It does NOT include anything from `customer_behavior.things_to_hide`. Use this to stay consistent with the intent you have already communicated.
 
 ### Primary Policy (for background only — do not reference directly)
 {primary_policy_text}
