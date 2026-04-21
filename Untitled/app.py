@@ -14,6 +14,9 @@ import uuid
 import datetime
 from pathlib import Path
 
+import gspread
+from google.oauth2.service_account import Credentials
+
 # ---------------------------------------------------------------------------
 # Path bootstrap (must happen before any local imports)
 # ---------------------------------------------------------------------------
@@ -1052,14 +1055,112 @@ _LOG_PATH = _SHOWCASE_DIR / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
 
 
+_GSHEET_HEADERS = [
+    "timestamp", "session_id",
+    # Customer persona
+    "persona_name", "persona_id", "persona_job_sector", "persona_location",
+    "persona_income_range", "persona_description",
+    # Agent persona
+    "agent_persona", "agent_persona_label",
+    # Scenario / task
+    "order_id", "purchase_date", "delivery_date",
+    "items", "return_reasons",
+    "scenario_detail", "scenario_return_details", "policy_ambiguities",
+    "complexity_level", "narrative",
+    # Conversation
+    "conversation",
+    # Resolution
+    "resolution_type", "resolution_description", "resolution_conditions",
+    "customer_next_steps",
+    # Stats
+    "turns", "tool_calls", "hints_used",
+]
+
+
+def _append_to_gsheet(record: dict):
+    """Append one summary row to the Google Sheet configured in Streamlit secrets."""
+    try:
+        creds = Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]),
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        gc = gspread.authorize(creds)
+        spreadsheet_id = st.secrets["google_sheets"]["spreadsheet_id"]
+        sheet = gc.open_by_key(spreadsheet_id).sheet1
+
+        task = record.get("task", {})
+        user = record.get("user", {})
+        stats = record.get("stats", {})
+        res = record.get("resolution") or {}
+        agent = record.get("agent", {})
+        scenario_raw = record.get("scenario_raw", {})
+
+        items_str = ", ".join(
+            i.get("product_name", "") if isinstance(i, dict) else str(i)
+            for i in task.get("items", [])
+        )
+        conversation_str = "\n".join(
+            f"[{m['role'].upper()}] {m['text']}"
+            for m in record.get("conversation", [])
+        )
+        ambiguities = scenario_raw.get("policy_ambiguities") or []
+        if isinstance(ambiguities, list):
+            ambiguities_str = "; ".join(
+                a.get("ambiguity", a) if isinstance(a, dict) else str(a)
+                for a in ambiguities
+            )
+        else:
+            ambiguities_str = str(ambiguities)
+
+        row = [
+            record.get("timestamp", ""),
+            record.get("session_id", ""),
+            user.get("name", ""),
+            user.get("persona_id", ""),
+            user.get("job_sector", ""),
+            user.get("location", ""),
+            user.get("income_range", ""),
+            user.get("persona_description", ""),
+            agent.get("key", ""),
+            agent.get("label", ""),
+            task.get("order_id", ""),
+            task.get("purchase_date", ""),
+            task.get("delivery_date", ""),
+            items_str,
+            ", ".join(task.get("return_reasons", [])),
+            scenario_raw.get("detail", ""),
+            scenario_raw.get("return_details", ""),
+            ambiguities_str,
+            scenario_raw.get("complexity_level", ""),
+            record.get("narrative", ""),
+            conversation_str,
+            res.get("resolution_type", "") if isinstance(res, dict) else "",
+            res.get("resolution_description", "") if isinstance(res, dict) else "",
+            "; ".join(res.get("conditions", [])) if isinstance(res, dict) else "",
+            res.get("customer_next_steps", "") if isinstance(res, dict) else "",
+            stats.get("turn_count", ""),
+            stats.get("tool_calls_count", ""),
+            stats.get("hints_used", ""),
+        ]
+
+        if not sheet.row_values(1):
+            sheet.append_row(_GSHEET_HEADERS)
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+    except Exception as e:
+        st.warning(f"Could not save to Google Sheet: {e}")
+
+
 def _save_session_data():
-    """Save user, task, conversation and resolution to a JSON file."""
+    """Save user, task, conversation and resolution to a JSON file and Google Sheet."""
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     persona = st.session_state.get("persona") or {}
     first_name = (persona.get("Name") or "unknown").split()[0].lower()
     session_id = st.session_state.get("api_session_id") or st.session_state.get("session_id", "unknown")
     filename = f"{first_name}_{session_id}.json"
-    task = (st.session_state.get("scenario") or {}).get("task", {})
+    scenario = st.session_state.get("scenario") or {}
+    task = scenario.get("task", {})
+    agent_key = st.session_state.get("agent_persona_choice", "FAIR")
+    agent_label = AGENT_INFO.get(agent_key, {}).get("label", agent_key)
     record = {
         "session_id": session_id,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
@@ -1069,6 +1170,11 @@ def _save_session_data():
             "job_sector": persona.get("Job_sector", ""),
             "income_range": persona.get("Income_range", ""),
             "persona_id": persona.get("Persona_id", ""),
+            "persona_description": persona.get("Person description", ""),
+        },
+        "agent": {
+            "key": agent_key,
+            "label": agent_label,
         },
         "task": {
             "order_id": task.get("order_id", ""),
@@ -1077,6 +1183,13 @@ def _save_session_data():
             "purchase_date": task.get("purchase_date", ""),
             "delivery_date": task.get("delivery_date", ""),
         },
+        "scenario_raw": {
+            "detail": task.get("detail", ""),
+            "return_details": task.get("return_details", ""),
+            "policy_ambiguities": task.get("policy_ambiguities", []),
+            "complexity_level": task.get("complexity_level", ""),
+        },
+        "narrative": st.session_state.get("narrative", ""),
         "conversation": [
             {
                 "role": m["role"],
@@ -1095,6 +1208,7 @@ def _save_session_data():
     out_path = _OUTPUT_DIR / filename
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)
+    _append_to_gsheet(record)
 
 
 def _log_event(event_type: str, data: dict):
