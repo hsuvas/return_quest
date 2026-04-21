@@ -2209,6 +2209,15 @@ elif st.session_state.step == 6:
                         st.markdown(f"&nbsp;&nbsp;🔧 *{tool['tool_name']}*", unsafe_allow_html=True)
                 st.markdown("---")
 
+        st.markdown(
+            '<a href="https://forms.office.com/e/BTDbBZ6JXZ" target="_blank">'
+            '<button style="width:100%;padding:0.6rem;background:#1976d2;color:#fff;'
+            'border:none;border-radius:4px;font-family:\'Press Start 2P\',monospace;'
+            'font-size:0.7rem;cursor:pointer;margin-bottom:0.5rem;">📝 Take Post-Game Survey</button>'
+            '</a>',
+            unsafe_allow_html=True,
+        )
+
         if st.button(f"🔄 {t('play_again')}", type="primary", use_container_width=True):
             sid = st.session_state.get("api_session_id")
             if sid:
