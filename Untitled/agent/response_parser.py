@@ -20,6 +20,35 @@ _COMPOUND_QUESTION_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+_FILLER_QUESTION_RE = re.compile(
+    r'^(?:'
+    r'do you understand'
+    r'|does that (?:make sense|sound (?:good|right|okay|ok))'
+    r'|(?:is|does) that (?:okay|ok|alright|clear|correct)'
+    r'|(?:could|can|would) you (?:please )?confirm(?: the following(?: information)?)?'
+    r'|shall (?:we|i) proceed'
+    r'|(?:would|do) you (?:like to )?proceed'
+    r'|(?:are you )?(?:ready to proceed|ready to continue)'
+    r'|(?:is|are) (?:that|there) (?:anything else|everything)'
+    r'|(?:do|did) (?:you|that) make sense'
+    r')\??\s*$',
+    re.IGNORECASE,
+)
+
+
+def _is_filler_question(question: str) -> bool:
+    """Return True if question is a hollow procedural filler with no case-specific content."""
+    q = question.strip().rstrip("?").strip()
+    # Very short questions (≤6 words) matching filler patterns
+    if _FILLER_QUESTION_RE.match(question.strip()):
+        return True
+    # Catch short generic confirmations not covered above (≤5 words, no numbers/proper nouns)
+    words = q.split()
+    if len(words) <= 5 and not re.search(r'[A-Z][a-z]|\d', q):
+        if re.search(r'\b(?:understand|confirm|proceed|okay|ok|sense|sound|clear|alright)\b', q, re.IGNORECASE):
+            return True
+    return False
+
 
 def _reduce_compound_question(question: str) -> str:
     """If question_to_customer lists multiple items (comma-joined), keep only the first sub-ask."""
@@ -232,12 +261,12 @@ def _parse_agent_json_body(data: Dict[str, Any]) -> AgentResponse:
 
     body = "\n".join(messages) if messages else ""
 
-    if question:
+    if question and not _is_filler_question(question):
         # Strip any stray questions from the message body — question lives only in question_to_customer
         body = _strip_all_questions(body)
         combined_message = (body.rstrip() + "\n\n" + question).strip() if body else question
     else:
-        # Fallback: no question_to_customer — apply sentence-level stripping
+        # Filler/absent question_to_customer — keep real questions from the body
         combined_message = _enforce_single_question(body) if body else None
 
     # Tool calls from tool_calls_made
