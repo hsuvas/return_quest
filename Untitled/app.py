@@ -1221,6 +1221,23 @@ def trait_bar(score, label, max_score=5):
 
 
 # ===========================================================================
+# EXIT BUTTON — top-right on every page
+# ===========================================================================
+
+_, _exit_col = st.columns([6, 1])
+with _exit_col:
+    if st.button("✕ Exit", key="exit_btn_top", help="Abort and return to start", use_container_width=True):
+        sid = st.session_state.get("api_session_id")
+        if sid:
+            try:
+                httpx.delete(f"{_API_BASE}/api/session/{sid}", timeout=5)
+            except Exception:
+                pass
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.rerun()
+
+# ===========================================================================
 # STEP 1 — Persona Design
 # ===========================================================================
 
