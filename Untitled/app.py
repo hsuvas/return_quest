@@ -946,6 +946,7 @@ def init_state():
         "verification_result": None,
         "input_counter": 0,
         "_prefill_msg": "",
+        "participant_number": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1053,10 +1054,27 @@ def next_step():
 
 _LOG_PATH = _SHOWCASE_DIR / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
+_PARTICIPANT_COUNTER_PATH = _SHOWCASE_DIR / "data_collect" / "participant_counter.txt"
+
+
+def _next_participant_number() -> int:
+    """Atomically increment and return the next participant number (0-based)."""
+    _PARTICIPANT_COUNTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import fcntl
+    with open(_PARTICIPANT_COUNTER_PATH, "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        raw = f.read().strip()
+        current = int(raw) if raw else -1
+        next_num = current + 1
+        f.seek(0)
+        f.truncate()
+        f.write(str(next_num))
+    return next_num
 
 
 _GSHEET_HEADERS = [
-    "timestamp", "session_id",
+    "participant_number", "timestamp", "session_id",
     # Customer persona
     "persona_name", "persona_id", "persona_job_sector", "persona_location",
     "persona_income_range", "persona_description",
@@ -1113,6 +1131,7 @@ def _append_to_gsheet(record: dict):
             ambiguities_str = str(ambiguities)
 
         row = [
+            record.get("participant_number", ""),
             record.get("timestamp", ""),
             record.get("session_id", ""),
             user.get("name", ""),
@@ -1162,6 +1181,7 @@ def _save_session_data():
     agent_key = st.session_state.get("agent_persona_choice", "FAIR")
     agent_label = AGENT_INFO.get(agent_key, {}).get("label", agent_key)
     record = {
+        "participant_number": st.session_state.get("participant_number", ""),
         "session_id": session_id,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "user": {
@@ -1743,6 +1763,8 @@ elif st.session_state.step == 3:
             go_to(2)
     with col_next:
         if st.button(f"{t('next_mission')} →", type="primary", use_container_width=True):
+            if st.session_state.get("participant_number") is None:
+                st.session_state.participant_number = _next_participant_number()
             _log_event("agent_selected", {
                 "persona_id": st.session_state.persona.get("Persona_id", "") if st.session_state.persona else "",
                 "agent_persona": st.session_state.agent_persona_choice,
@@ -2261,6 +2283,17 @@ elif st.session_state.step == 6:
     else:
         st.balloons()
         st.success(f"🎉 {t('accepted')}")
+
+        _pnum = st.session_state.get("participant_number")
+        if _pnum is not None:
+            st.markdown(
+                f'<div style="text-align:center;margin:16px 0 24px;">'
+                f'<div style="font-family:\'Press Start 2P\',monospace;font-size:0.75rem;color:#aaa;margin-bottom:6px;">YOUR PARTICIPANT NUMBER</div>'
+                f'<div style="font-family:\'Press Start 2P\',monospace;font-size:3rem;color:#ffe066;letter-spacing:4px;">{_pnum}</div>'
+                f'<div style="font-size:0.85rem;color:#ccc;margin-top:8px;">Enter this number in the post-game survey</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
         st.markdown(
             f'<div style="border:4px solid {border_c};background:{bg};border-radius:4px;'
