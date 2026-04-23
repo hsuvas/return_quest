@@ -536,7 +536,7 @@ STRINGS = {
         "selected_items": "Selected Items",
         "select_at_least_one": "Select at least one item to continue.",
         "next_agent": "Next: Choose Agent",
-        "amazon": "Amazon",
+        "amzaon": "Amzaon",
         "third_party": "3rd Party",
         "items_counter": "items selected",
         # Step 3
@@ -622,7 +622,7 @@ STRINGS = {
         "selected_items": "Ausgewählte Artikel",
         "select_at_least_one": "Bitte wähle mindestens einen Artikel.",
         "next_agent": "Weiter: Agent wählen",
-        "amazon": "Amazon",
+        "amzaon": "Amzaon",
         "third_party": "Drittanbieter",
         "items_counter": "Artikel ausgewählt",
         # Step 3
@@ -1579,7 +1579,7 @@ elif st.session_state.step == 2:
         icon = _prod_icon(cat_full)
         cat_bg, cat_fg = _cat_colors(cat_full)
         desc = product.get("description", "")[:110]
-        is_amz = product.get("is_amazon_seller") == "Y"
+        is_amz = product.get("is_amzaon_seller") == "Y"
 
         card_border = f"3px solid {th['product_border_sel']}" if is_checked else f"2px solid {th['product_border']}"
         card_bg = th["product_bg_sel"] if is_checked else th["product_bg"]
@@ -1587,7 +1587,7 @@ elif st.session_state.step == 2:
 
         seller_html = (
             f'<span style="display:inline-block;padding:1px 6px;border-radius:3px;'
-            f'font-size:0.62rem;font-weight:700;background:#e65100;color:#fff;">Amazon</span>'
+            f'font-size:0.62rem;font-weight:700;background:#e65100;color:#fff;">Amzaon</span>'
             if is_amz else
             f'<span style="display:inline-block;padding:1px 6px;border-radius:3px;'
             f'font-size:0.62rem;font-weight:700;background:#546e7a;color:#fff;">3rd Party</span>'
@@ -1672,7 +1672,7 @@ elif st.session_state.step == 2:
                             "product_name": item.get("product_name"),
                             "category": item.get("category"),
                             "selling_price": item.get("selling_price"),
-                            "is_amazon_seller": item.get("is_amazon_seller"),
+                            "is_amzaon_seller": item.get("is_amzaon_seller"),
                         }
                         for item in st.session_state.selected_items
                     ],

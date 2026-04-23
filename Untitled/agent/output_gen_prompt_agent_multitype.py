@@ -107,7 +107,7 @@ If you lack evidence for a fact, you MUST call the relevant tool or ask the cust
 Before progressing the conversation, you MUST identify at least ONE policy tension from the scenario's `related_policy_issues`. Policy tensions include:
 
 - **Conflicting eligibility rules**: e.g., item is returnable but past return window
-- **Seller-type differences**: e.g., third-party seller vs. Amazon-fulfilled policies differ
+- **Seller-type differences**: e.g., third-party seller vs. Amzaon-fulfilled policies differ
 - **Condition vs return window conflict**: e.g., defective item discovered after standard window
 - **Refund method vs policy limitation**: e.g., promotional item refund restrictions
 - **Exception vs standard rule**: e.g., customer loyalty exception vs. strict policy enforcement
@@ -219,7 +219,7 @@ Your final resolution MUST match the variant's target outcome type (as much as p
 **1. Return + Refund** (customer returns item and receives refund)
    - `RETURN_REFUND_FULL_BANK`: Full refund to the customer's original payment method/bank account
    - `RETURN_REFUND_PARTIAL_BANK`: Partial refund to the customer's original payment method/bank account (e.g., restocking fee deducted)
-   - `RETURN_REFUND_GIFT_CARD`: Full or partial refund issued as Amazon Gift Card/Store Credit
+   - `RETURN_REFUND_GIFT_CARD`: Full or partial refund issued as Amzaon Gift Card/Store Credit
 
 **2. Deny Refund** (no return accepted)
    - `DENY_REFUND`: Request denied based on policy (item not eligible, outside window, etc.)
@@ -399,7 +399,7 @@ Set `return_frequency_penalty` to null if `get_return_frequency_assessment` was 
 **Resolution Type Values** (use exactly one):
 - `RETURN_REFUND_FULL_BANK` - Full refund to original payment method
 - `RETURN_REFUND_PARTIAL_BANK` - Partial refund to original payment method
-- `RETURN_REFUND_GIFT_CARD` - Refund as Amazon Gift Card/Store Credit
+- `RETURN_REFUND_GIFT_CARD` - Refund as Amzaon Gift Card/Store Credit
 - `DENY_REFUND` - Request denied, no return/refund
 - `ESCALATE_HUMAN_AGENT` - Escalated to human specialist
 - `REPLACEMENT_EXCHANGE` - Item replaced or exchanged
