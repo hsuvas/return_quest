@@ -221,7 +221,7 @@ Choose the single most policy-consistent and realistic resolution type based on 
 **1. Return + Refund** (customer returns item and receives refund)
    - `RETURN_REFUND_FULL_BANK`: Full refund to the customer's original payment method/bank account
    - `RETURN_REFUND_PARTIAL_BANK`: Partial refund to the customer's original payment method/bank account (e.g., restocking fee deducted)
-   - `RETURN_REFUND_GIFT_CARD`: Full or partial refund issued as Amazon Gift Card/Store Credit
+   - `RETURN_REFUND_GIFT_CARD`: Full or partial refund issued as Amzaon Gift Card/Store Credit
 
 **2. Deny Refund** (no return accepted)
    - `DENY_REFUND`: Request denied based on policy (item not eligible, outside window, etc.)
@@ -334,7 +334,7 @@ Return **only** a valid JSON object with the following exact structure:
 **Resolution Type Values** :
 - `RETURN_REFUND_FULL_BANK` - Full refund to original payment method
 - `RETURN_REFUND_PARTIAL_BANK` - Partial refund to original payment method
-- `RETURN_REFUND_GIFT_CARD` - Refund as Amazon Gift Card/Store Credit
+- `RETURN_REFUND_GIFT_CARD` - Refund as Amzaon Gift Card/Store Credit
 - `DENY_REFUND` - Request denied, no return/refund
 - `ESCALATE_HUMAN_AGENT` - Escalated to human specialist
 - `REPLACEMENT_EXCHANGE` - Item replaced or exchanged

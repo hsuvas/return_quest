@@ -49,23 +49,23 @@ _AMBIGUITIES_CSV = _SHOWCASE_DIR / "policy_ambiguities_v3_final.csv"
 
 
 # ---------------------------------------------------------------------------
-# Cached Amazon return policy text (condensed but accurate)
+# Cached Amzaon return policy text (condensed but accurate)
 # ---------------------------------------------------------------------------
 
 AMAZON_RETURN_POLICY_TEXT = """
-Amazon Return Policy — Key Provisions
+Amzaon Return Policy — Key Provisions
 
 STANDARD RETURN WINDOW
-Most items sold and fulfilled by Amazon can be returned within 30 days of delivery for a full refund. The 30-day return window begins on the delivery date.
+Most items sold and fulfilled by Amzaon can be returned within 30 days of delivery for a full refund. The 30-day return window begins on the delivery date.
 
 THIRD-PARTY SELLER ITEMS
-Items sold by third-party sellers (Marketplace sellers) may have different return policies. Amazon's A-to-z Guarantee still applies. Third-party sellers set their own return windows (minimum 30 days from delivery for most categories). If a third-party seller doesn't accept returns, customers can file an A-to-z Guarantee claim.
+Items sold by third-party sellers (Marketplace sellers) may have different return policies. Amzaon's A-to-z Guarantee still applies. Third-party sellers set their own return windows (minimum 30 days from delivery for most categories). If a third-party seller doesn't accept returns, customers can file an A-to-z Guarantee claim.
 
 DEFECTIVE OR DAMAGED ITEMS
-Items that arrive defective, damaged, or not as described qualify for return or replacement regardless of the standard return window, within a reasonable time frame. Customers should contact Amazon within 30 days of receiving a defective item.
+Items that arrive defective, damaged, or not as described qualify for return or replacement regardless of the standard return window, within a reasonable time frame. Customers should contact Amzaon within 30 days of receiving a defective item.
 
 REFUND METHOD
-Refunds are generally issued to the original payment method. If the original payment method is unavailable, Amazon may issue a gift card. Refunds typically take 3–5 business days for credit/debit cards and up to 10 business days for bank transfers.
+Refunds are generally issued to the original payment method. If the original payment method is unavailable, Amzaon may issue a gift card. Refunds typically take 3–5 business days for credit/debit cards and up to 10 business days for bank transfers.
 
 PARTIAL REFUNDS
 A partial refund may be issued if the item is returned in a different condition than it was received, or if a non-refundable component (e.g., restocking fee for certain electronics) applies.
@@ -78,22 +78,22 @@ CATEGORIES WITH SPECIAL RULES
 - Personalized items: Non-returnable
 
 RETURN SHIPPING
-For items sold by Amazon, return shipping is free via prepaid label. For third-party sellers, return shipping costs depend on the seller's policy. Amazon covers return shipping for defective or mis-shipped items regardless of seller.
+For items sold by Amzaon, return shipping is free via prepaid label. For third-party sellers, return shipping costs depend on the seller's policy. Amzaon covers return shipping for defective or mis-shipped items regardless of seller.
 
 CONDITION REQUIREMENTS
 Items should be returned in original condition, in original packaging. Items showing signs of use, missing accessories, or damaged packaging may receive a partial refund or be refused.
 
 EXCHANGE / REPLACEMENT
-Amazon offers replacements for defective or damaged items at no cost. For standard returns, customers can reorder after receiving the refund.
+Amzaon offers replacements for defective or damaged items at no cost. For standard returns, customers can reorder after receiving the refund.
 
 REFUND TIMING
 - Credit card: 3–5 business days after return is processed
-- Amazon gift card: 2–3 hours
+- Amzaon gift card: 2–3 hours
 - Bank transfer: 5–10 business days
 - Check: 10 business days
 
 ESCALATION
-If a standard return request is denied or disputed, customers can escalate to the Amazon Customer Service team or file an A-to-z Guarantee claim for third-party seller purchases.
+If a standard return request is denied or disputed, customers can escalate to the Amzaon Customer Service team or file an A-to-z Guarantee claim for third-party seller purchases.
 """.strip()
 
 
@@ -210,7 +210,7 @@ RESOLUTION_DISPLAY: Dict[str, Dict[str, str]] = {
         "label": "Store Credit / Gift Card",
         "icon": "🎁",
         "color": "blue",
-        "description": "You will receive an Amazon Gift Card for the refund amount. This is typically processed within 2–3 hours.",
+        "description": "You will receive an Amzaon Gift Card for the refund amount. This is typically processed within 2–3 hours.",
     },
     "DENY_REFUND": {
         "label": "Return Denied",
@@ -249,7 +249,7 @@ _REASON_ISSUE_MAP: Dict[str, str] = {
         "manufacturer defect discovery timeline"
     ),
     "Wrong Item": (
-        "Wrong item fulfillment: responsibility ambiguity between Amazon "
+        "Wrong item fulfillment: responsibility ambiguity between Amzaon "
         "and third-party seller for mispicks"
     ),
     "Changed Mind": (
@@ -268,7 +268,7 @@ _REASON_ISSUE_MAP: Dict[str, str] = {
 
 _THIRD_PARTY_ISSUE = (
     "Third-party seller policy: seller's return window and conditions may "
-    "differ from Amazon's standard policy"
+    "differ from Amzaon's standard policy"
 )
 
 
@@ -279,7 +279,7 @@ def derive_policy_issues(
     """Derive a list of policy tension strings from items and return reasons."""
     issues = []
     has_third_party = any(
-        item.get("is_amazon_seller", "Y") != "Y" for item in items
+        item.get("is_amzaon_seller", "Y") != "Y" for item in items
     )
     if has_third_party:
         issues.append(_THIRD_PARTY_ISSUE)
@@ -300,14 +300,14 @@ def derive_policy_issues(
 # ---------------------------------------------------------------------------
 
 _TASK_SYS_PROMPT = (
-    "You are an expert at designing high-complexity Amazon order return scenarios "
+    "You are an expert at designing high-complexity Amzaon order return scenarios "
     "for customer support training. Follow the instructions exactly and return only JSON."
 )
 
 _TASK_PROMPT_TEMPLATE = """\
 ## INSTRUCTION
 
-Generate exactly 1 high-complexity Amazon order return scenario for a customer support negotiation game.
+Generate exactly 1 high-complexity Amzaon order return scenario for a customer support negotiation game.
 - Use the provided product set as the purchased items
 - Exploit the provided policy ambiguities — do NOT resolve them
 - Require multi-turn clarification between customer and agent
@@ -322,7 +322,7 @@ Generate exactly 1 high-complexity Amazon order return scenario for a customer s
 
 ## GROUNDING IN ACTUAL RETURN PROCESSES
 
-Scenarios MUST reflect how Amazon's return process actually works. Key distinctions:
+Scenarios MUST reflect how Amzaon's return process actually works. Key distinctions:
 
 1. Missing items vs returns: A missing item is a delivery issue (reshipment or partial refund), not a return. Create ambiguity around edge cases such as a customer who wants to return an incomplete order rather than wait for reshipment.
 
@@ -575,10 +575,10 @@ def build_scenario(
 
     # Seller type for the case brief
     has_third_party = any(
-        str(item.get("is_amazon_seller", "Y")).strip().upper() != "Y"
+        str(item.get("is_amzaon_seller", "Y")).strip().upper() != "Y"
         for item in selected_items
     )
-    seller_note = "Third-party seller (Fulfilled by Amazon)" if has_third_party else "Sold and fulfilled by Amazon"
+    seller_note = "Third-party seller (Fulfilled by Amzaon)" if has_third_party else "Sold and fulfilled by Amzaon"
 
     # --- Three-part scenario structure ---
 
@@ -646,7 +646,7 @@ def build_scenario(
         "scenario_id": f"demo_{uuid.uuid4().hex[:8]}",
         "Policy": {
             "Primary Policy": {
-                "url": "https://www.amazon.com/gp/help/customer/display.html?nodeId=GKM69DUUYKQWKWX7",
+                "url": "https://www.amzaon.com/gp/help/customer/display.html?nodeId=GKM69DUUYKQWKWX7",
                 "text": AMAZON_RETURN_POLICY_TEXT,
             },
             "Related policies": [],
@@ -760,7 +760,7 @@ def _rewrite_as_direct_message(state: ConversationState, provider: LLMProvider) 
         {
             "role": "system",
             "content": (
-                "You are an Amazon customer support agent. "
+                "You are an Amzaon customer support agent. "
                 "FORBIDDEN phrases — NEVER use: 'please hold on', 'I'll check', 'I'll review', "
                 "'I'll update you shortly', 'I'll get back to you', 'one moment', 'give me a moment'. "
                 "Write a direct response using ONLY facts from tool results already in the conversation history. "
@@ -885,7 +885,7 @@ def suggest_first_message(
     )
     # Inject a synthetic agent opener so the customer prompt works
     state.append_agent_message(
-        "Hello! Welcome to Amazon Customer Service. How can I assist you today? "
+        "Hello! Welcome to Amzaon Customer Service. How can I assist you today? "
         "Please describe your return request including the item(s) you'd like to return "
         "and the reason for the return."
     )
@@ -1027,7 +1027,7 @@ def generate_narrative(
     reason = list(reasons.values())[0] if reasons else "an issue"
     return (
         f"You are {name}{age_loc}. "
-        f"You recently purchased {item_name} from Amazon, "
+        f"You recently purchased {item_name} from Amzaon, "
         f"but you need to return it because: {reason.lower()}. "
         + mission_cta
     )

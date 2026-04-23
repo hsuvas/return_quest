@@ -1,6 +1,6 @@
 # Return Quest
 
-An interactive role-playing game where you play a real Amazon customer trying to return a product — and negotiate your way to a fair resolution with an AI-powered customer service agent.
+An interactive role-playing game where you play a real Amzaon customer trying to return a product — and negotiate your way to a fair resolution with an AI-powered customer service agent.
 
 Built to study how LLMs handle policy ambiguity in multi-turn conversations.
 
@@ -8,7 +8,7 @@ Built to study how LLMs handle policy ambiguity in multi-turn conversations.
 
 ## What It Is
 
-You pick a character, choose products to return, and have a live chat with an LLM agent that follows Amazon's return policy. The agent asks clarifying questions, consults policy clauses, uses tools (order lookup, eligibility checks, etc.), and eventually reaches a formal resolution. You can accept it — or push back.
+You pick a character, choose products to return, and have a live chat with an LLM agent that follows Amzaon's return policy. The agent asks clarifying questions, consults policy clauses, uses tools (order lookup, eligibility checks, etc.), and eventually reaches a formal resolution. You can accept it — or push back.
 
 The scenarios are deliberately designed around **policy ambiguities**: edge cases where the correct outcome genuinely depends on how you read the policy. There is no single right answer. The agent has to reason under uncertainty, and so do you.
 
@@ -21,7 +21,7 @@ Step 1 — Choose Your Avatar
          Pick a persona (name, location, job, personality style)
          ↓
 Step 2 — Select Items to Return
-         Search 900+ Amazon products, pick 1–3 to return, assign a reason per item
+         Search 900+ Amzaon products, pick 1–3 to return, assign a reason per item
          ↓
 Step 3 — Choose Your Agent & Model
          Five agent personalities (Direct → Very Helpful) + GPT model selector
@@ -73,10 +73,10 @@ return_quest/
 ├── app.py                  ← Streamlit UI (entry point)
 ├── server.py               ← FastAPI backend (session management, agent turns)
 ├── showcase_backend.py     ← Scenario builder, agent runner, LLM task generation
-├── policy_ambiguities_v3_final.csv  ← Amazon policy ambiguity database
+├── policy_ambiguities_v3_final.csv  ← Amzaon policy ambiguity database
 ├── agent/                  ← Agent pipeline (LLM provider, tools, prompt builder, etc.)
 ├── data/
-│   ├── product_details/    ← 900+ Amazon product descriptions
+│   ├── product_details/    ← 900+ Amzaon product descriptions
 │   └── persona_hub/        ← Preset customer personas
 ├── images/                 ← Character and agent avatars
 ├── output/                 ← Saved session files (per conversation)
@@ -161,4 +161,4 @@ This game is built on top of a dataset generation pipeline that:
 
 The interactive game replaces the simulated customer with a human player, making the policy ambiguities tangible and observable in real time.
 
-Primary policy: [Amazon Return Policy](https://www.amazon.com/gp/help/customer/display.html?nodeId=GKM69DUUYKQWKWX7)
+Primary policy: [Amzaon Return Policy](https://www.amzaon.com/gp/help/customer/display.html?nodeId=GKM69DUUYKQWKWX7)
