@@ -1795,6 +1795,67 @@ elif st.session_state.step == 3:
             # Clear narrative so Step 4 regenerates
             st.session_state.narrative = ""
             st.session_state.starters = []
+
+            # --- Submission animation interstitial ---
+            _anim = st.empty()
+            _items_for_anim = st.session_state.selected_items or []
+            _reasons_for_anim = st.session_state.return_reasons or []
+
+            def _form_html(items, reasons, status="idle"):
+                rows = "".join(
+                    f'<tr style="border-bottom:1px solid #333;">'
+                    f'<td style="padding:6px 10px;color:#eee;">{i+1}</td>'
+                    f'<td style="padding:6px 10px;color:#eee;">{item.get("product_name","Item")}</td>'
+                    f'<td style="padding:6px 10px;color:#aaa;">{reasons[i] if i < len(reasons) else ""}</td>'
+                    f'</tr>'
+                    for i, item in enumerate(items)
+                )
+                if status == "idle":
+                    btn = '<div style="margin-top:18px;text-align:center;"><span style="font-family:\'Press Start 2P\',monospace;font-size:0.65rem;background:#1976d2;color:#fff;padding:8px 22px;border-radius:3px;letter-spacing:1px;">SUBMIT REQUEST</span></div>'
+                    overlay = ""
+                elif status == "submitting":
+                    btn = ""
+                    overlay = (
+                        '<div style="margin-top:18px;text-align:center;">'
+                        '<div style="font-family:\'Press Start 2P\',monospace;font-size:0.6rem;color:#ffe066;margin-bottom:10px;">SUBMITTING...</div>'
+                        '<div style="background:#222;border-radius:3px;height:12px;width:80%;margin:0 auto;overflow:hidden;">'
+                        '<div style="background:#1976d2;height:100%;width:100%;animation:progress-fill 1.2s linear forwards;"></div>'
+                        '</div></div>'
+                        '<style>@keyframes progress-fill{from{width:0%}to{width:100%}}</style>'
+                    )
+                else:  # success
+                    btn = ""
+                    overlay = (
+                        '<div style="margin-top:18px;text-align:center;">'
+                        '<div style="font-size:2.5rem;">✅</div>'
+                        '<div style="font-family:\'Press Start 2P\',monospace;font-size:0.65rem;color:#4caf50;margin-top:8px;letter-spacing:1px;">REQUEST SUBMITTED</div>'
+                        '</div>'
+                    )
+                return (
+                    '<div style="max-width:560px;margin:40px auto;background:#1a1a2e;border:2px solid #333;'
+                    'border-radius:6px;padding:24px;font-family:sans-serif;">'
+                    '<div style="font-family:\'Press Start 2P\',monospace;font-size:0.7rem;color:#ffe066;'
+                    'margin-bottom:16px;letter-spacing:1px;">📦 AMAZON RETURN REQUEST</div>'
+                    '<table style="width:100%;border-collapse:collapse;font-size:0.85rem;">'
+                    '<thead><tr style="border-bottom:2px solid #444;">'
+                    '<th style="padding:6px 10px;color:#888;text-align:left;">#</th>'
+                    '<th style="padding:6px 10px;color:#888;text-align:left;">Item</th>'
+                    '<th style="padding:6px 10px;color:#888;text-align:left;">Reason</th>'
+                    '</tr></thead>'
+                    f'<tbody>{rows}</tbody></table>'
+                    f'{btn}{overlay}'
+                    '</div>'
+                )
+
+            _anim.markdown(_form_html(_items_for_anim, _reasons_for_anim, "idle"), unsafe_allow_html=True)
+            time.sleep(1.2)
+            _anim.markdown(_form_html(_items_for_anim, _reasons_for_anim, "submitting"), unsafe_allow_html=True)
+            time.sleep(1.4)
+            _anim.markdown(_form_html(_items_for_anim, _reasons_for_anim, "success"), unsafe_allow_html=True)
+            time.sleep(1.0)
+            _anim.empty()
+            # -------------------------------------------------
+
             next_step()
 
 
