@@ -1190,10 +1190,10 @@ with st.sidebar:
             st.markdown(f"**{t('your_character')}:** {persona.get('Name','?')}")
 
         # Turn progress bar
-        filled = min(turn, 10)
-        bar = "■" * filled + "□" * (10 - filled)
+        filled = min(turn, 20)
+        bar = "■" * filled + "□" * (20 - filled)
         st.markdown(f'<div class="px-bar">{bar}</div>', unsafe_allow_html=True)
-        st.caption(f"{t('turn')}: {turn} / 10")
+        st.caption(f"{t('turn')}: {turn} / 20")
 
         st.markdown("---")
 
@@ -1945,7 +1945,7 @@ elif st.session_state.step == 5:
             st.session_state["input_counter"] += 1
             st.rerun()
 
-        if st.session_state.turn_count >= 9:
+        if st.session_state.turn_count >= 19:
             st.warning(t("turn_limit_warning"))
 
         # Hint button — below chatbox
