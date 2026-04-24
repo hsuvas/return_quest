@@ -1054,23 +1054,11 @@ def next_step():
 
 _LOG_PATH = _SHOWCASE_DIR / "data_collect" / "showcase_log.jsonl"
 _OUTPUT_DIR = _SHOWCASE_DIR / "output"
-_PARTICIPANT_COUNTER_PATH = _SHOWCASE_DIR / "data_collect" / "participant_counter.txt"
-
 
 def _next_participant_number() -> int:
-    """Atomically increment and return the next participant number (0-based)."""
-    _PARTICIPANT_COUNTER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    import fcntl
-    with open(_PARTICIPANT_COUNTER_PATH, "a+") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        f.seek(0)
-        raw = f.read().strip()
-        current = int(raw) if raw else 99
-        next_num = current + 1
-        f.seek(0)
-        f.truncate()
-        f.write(str(next_num))
-    return next_num
+    """Return a random participant number >= 100."""
+    import random
+    return random.randint(100, 9999)
 
 
 _GSHEET_HEADERS = [
